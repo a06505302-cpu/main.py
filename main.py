@@ -63,7 +63,8 @@ def main():
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.Document.file_extension("txt"), handle_file))
+    # استخدام فلتر mime_type بدلاً من file_extension لتجنب الأخطاء
+    app.add_handler(MessageHandler(filters.Document.mime_type("text/plain"), handle_file))
 
     app.run_polling()
 
