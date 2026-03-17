@@ -1,8 +1,12 @@
 import os
 import re
 import requests
+import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+
+# إعداد السجلات
+logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # توكن البوت الخاص بك
 TOKEN = '7327856614:AAG9fY6rjp_wPKTLNnQCgoZdzagla3h9-80'
@@ -18,7 +22,8 @@ def check_card_api(card_number):
         "amount": 0.50
     }
     try:
-        response = requests.get(API_URL, params=params)
+        response = requests.get(API_URL, params=params, timeout=10)
+        response.raise_for_status()
         result = response.json().get('result', 'غير معروف')
         return result
     except Exception as e:
@@ -34,10 +39,10 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         file_path = f"downloads/{file.file_id}.txt"
         await file.download_to_drive(file_path)
 
-        # قراءة الملف وفحص البطاقات
         with open(file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
 
+        # إرسال كل نتيجة بشكل فوري
         for line in lines:
             line = line.strip()
             card_number_matches = re.findall(r'\d+', line)
@@ -46,7 +51,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 result = check_card_api(card_number)
                 await update.message.reply_text(f"بطاقة: {line} - النتيجة: {result}")
             else:
-                await update.message.reply_text(f"لم يتم العثور على رقم بطاقة في السطر: {line}")
+                await update.message.reply_text(f"السطر: {line} لا يحتوي على رقم بطاقة صحيح.")
 
     except Exception as e:
         await update.message.reply_text(f"حدث خطأ أثناء معالجة الملف: {e}")
@@ -58,7 +63,7 @@ def main():
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+    app.add_handler(MessageHandler(filters.Document.file_extension("txt"), handle_file))
 
     app.run_polling()
 
