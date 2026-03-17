@@ -5,7 +5,7 @@ import logging
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-# إعداد السجلات
+# إعداد السجلات لمتابعة الأخطاء والأحداث
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO)
 
 # توكن البوت الخاص بك
@@ -29,22 +29,26 @@ def check_card_api(card_number):
     except Exception as e:
         return f"خطأ في التحقق: {e}"
 
+# معالج استقبال الملف
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
-        # تأكد من وجود مجلد 'downloads'
+        # إنشاء مجلد التحميل إذا لم يكن موجودًا
         if not os.path.exists('downloads'):
             os.makedirs('downloads')
 
+        # تحميل الملف
         file = await update.message.document.get_file()
         file_path = f"downloads/{file.file_id}.txt"
         await file.download_to_drive(file_path)
 
+        # قراءة الملف
         with open(file_path, 'r', encoding='utf-8') as f:
             lines = f.readlines()
 
-        # إرسال كل نتيجة بشكل فوري
+        # معالجة كل سطر
         for line in lines:
             line = line.strip()
+            # استخراج أول رقم من النص
             card_number_matches = re.findall(r'\d+', line)
             if card_number_matches:
                 card_number = card_number_matches[0]
@@ -52,20 +56,18 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await update.message.reply_text(f"بطاقة: {line} - النتيجة: {result}")
             else:
                 await update.message.reply_text(f"السطر: {line} لا يحتوي على رقم بطاقة صحيح.")
-
     except Exception as e:
         await update.message.reply_text(f"حدث خطأ أثناء معالجة الملف: {e}")
 
+# أمر /start
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text('مرحبًا! أرسل لي ملف نصي ليتحقق من بطاقات الائتمان.')
 
 def main():
     app = Application.builder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
-    # استخدام الفلتر الصحيح مع الإصدار 22.6
+    # تحديد نوع الملف النصي
     app.add_handler(MessageHandler(filters.Document.MimeType("text/plain"), handle_file))
-
     app.run_polling()
 
 if __name__ == '__main__':
