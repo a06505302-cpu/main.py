@@ -1,4 +1,3 @@
-import os
 import re
 import requests
 from telegram import Update
@@ -52,24 +51,12 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"حدث خطأ أثناء معالجة الملف: {e}")
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text('مرحبًا! أرسل لي ملف نصي ليتحقق من بطاقات الائتمان أو استخدم الأمر /pp للتحقق من بطاقة فردية.\nمثال: /pp 1234567890')
-
-async def pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        if not context.args:
-            await update.message.reply_text("يرجى إرسال رقم البطاقة بعد الأمر /pp. مثال: /pp 1234567890")
-            return
-        card_number = context.args[0]
-        result = check_card_api(card_number)
-        await update.message.reply_text(f"نتيجة التحقق للبطاقة {card_number}: {result}")
-    except Exception as e:
-        await update.message.reply_text(f"حدث خطأ: {e}")
+    await update.message.reply_text('مرحبًا! أرسل لي ملف نصي ليتحقق من بطاقات الائتمان.')
 
 def main():
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("pp", pp))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
     app.run_polling()
