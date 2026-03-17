@@ -63,7 +63,7 @@ def main():
     app = Application.builder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
-    # استخدام فلتر mime_type بدلاً من file_extension لتجنب الأخطاء
+    # استخدام فلتر mime_type بشكل صحيح مع نسخة 22.6
     app.add_handler(MessageHandler(filters.Document.mime_type("text/plain"), handle_file))
 
     app.run_polling()
