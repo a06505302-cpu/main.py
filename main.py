@@ -6,7 +6,7 @@ import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-TOKEN = '8323296411:AAGUZjVkEfGtf5SaHMb9XqoQGJ7taFEuHZQ'
+TOKEN = '8528438713:AAEXEv32GqKw6kD9i8hQkxAwb6NKjzKeIxE'
 API_URL = "http://gatescheck.duckdns.org:7000/check"
 
 stop_users = {}
