@@ -58,21 +58,20 @@ def format_response(card_full, status, response, taken):
         title = "#Paypal_Live🟢"
         stat = "LIVE 🟢"
     else:
-        title = "#Paypal_Cvv_Charged☠"
+        title = "#Declined❌"
         stat = "Declined !"
 
     text = f"""{title} [/pp] ($0.50)
 - - - - - - - - - - - - - - - - - - - - - -
-[ϟ] 𝐂𝐚𝐫𝐝: {card_full}
-[ϟ] 𝐑𝐞𝐬𝐩𝐨𝐧𝐬𝐞: {response}
-[ϟ] 𝐒𝐭𝐚𝐭𝐮𝐬: {stat}
-[ϟ] 𝐓𝐚𝐤𝐞𝐧: {taken} 𝐒.
+[ϟ] Card: {card_full}
+[ϟ] Response: {response}
+[ϟ] Status: {stat}
+[ϟ] Time: {taken}s
 - - - - - - - - - - - - - - - - - - - - - -
-[ϟ] 𝐈𝐧𝐟𝐨: {info}
-[ϟ] 𝐁𝐚𝐧𝐤: {bank}
-[ϟ] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {country}
-- - - - - - - - - - - - - - - - - - - - - -
-[⌥] 𝐓𝐢𝐦𝐞: {taken} 𝐒."""
+[ϟ] Info: {info}
+[ϟ] Bank: {bank}
+[ϟ] Country: {country}
+"""
     return text
 
 # ------------------- /pp -------------------
@@ -86,8 +85,12 @@ async def pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status, response = check_card_api(card_full)
     taken = round(time.time() - start_time, 2)
 
-    text = format_response(card_full, status, response, taken)
-    await update.message.reply_text(text)
+    # ابعت بس لو نجاح
+    if status in ["approved", "live"]:
+        text = format_response(card_full, status, response, taken)
+        await update.message.reply_text(text)
+    else:
+        await update.message.reply_text("Declined ❌")
 
 # ------------------- /stop -------------------
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -111,7 +114,7 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     live = 0
     declined = 0
 
-    panel_msg = await update.message.reply_text("Start Checking... 🔍")
+    panel_msg = await update.message.reply_text("🔍 Start Checking...")
 
     with open(file_path, 'r', encoding='utf-8') as f:
         lines = f.readlines()
@@ -131,9 +134,12 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status, response = check_card_api(card_full)
         taken = round(time.time() - start_time, 2)
 
-        text = format_response(card_full, status, response, taken)
-        await update.message.reply_text(text)
+        # ✅ نجاح → رسالة
+        if status in ["approved", "live"]:
+            text = format_response(card_full, status, response, taken)
+            await update.message.reply_text(text)
 
+        # العدادات
         if status == "approved":
             approved += 1
         elif status == "live":
@@ -141,16 +147,18 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             declined += 1
 
-        panel = f"""📊 Status
+        # تحديث اللوحة
+        panel = f"""📊 Checking Panel
 
 ✅ Charge: {approved}
 🟢 Live: {live}
 ❌ Declined: {declined}
+
 ⛔ Stop: {'ON' if stop_users.get(user_id) else 'OFF'}
 """
         await panel_msg.edit_text(panel)
 
-    await update.message.reply_text("Done ✅")
+    await update.message.reply_text("✅ Done")
 
 # ------------------- Start -------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -166,7 +174,6 @@ def main():
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
 
     app.run_polling()
-
 
 if __name__ == "__main__":
     main()
