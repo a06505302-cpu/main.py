@@ -67,6 +67,9 @@ async def format_response(card_full, status, response, taken):
 
 # ------------------- /pp Command -------------------
 async def pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    asyncio.create_task(process_pp(update, context))
+
+async def process_pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     card_full = " ".join(context.args)
     if not card_full:
         await update.message.reply_text("Usage:\n/pp 4242424242424242|09|28|123")
@@ -90,6 +93,10 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ------------------- File Handler -------------------
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    # كل رفع ملف يتحول لـ task مستقل
+    asyncio.create_task(process_file(update, context))
+
+async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     stop_users[user_id] = False
 
