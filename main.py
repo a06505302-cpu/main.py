@@ -1,6 +1,7 @@
 import os
 import re
 import time
+import random
 import asyncio
 import httpx
 from telegram import Update
@@ -16,28 +17,30 @@ GATES = [
 gate_index = 0
 stop_users = {}
 
-# تسريع الفحص
-api_semaphore = asyncio.Semaphore(12)  # رفع العدد للتوازي أسرع
+# تسريع الفحص (معتدل)
+api_semaphore = asyncio.Semaphore(6)  # معدل معتدل
 
 # ------------------- BIN Lookup -------------------
 async def get_bin_info(bin_number):
-    # نجرب جلب البيانات من أكثر من مصدر لتقليل N/A
     urls = [
         f"https://lookup.binlist.net/{bin_number}",
         f"https://lookup.binlist.com/{bin_number}"  # API احتياطي
     ]
-    for url in urls:
-        try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.get(url)
-                data = r.json()
-                brand = data.get("scheme") or "Unknown"
-                card_type = data.get("type") or "Unknown"
-                bank = data.get("bank", {}).get("name") or "Unknown"
-                country = data.get("country", {}).get("name") or "Unknown"
-                return f"{brand} - {card_type}", bank, country
-        except:
-            continue
+    for attempt in range(3):  # 3 محاولات لتقليل Unknown
+        for url in urls:
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.get(url)
+                    data = r.json()
+                    brand = data.get("scheme")
+                    card_type = data.get("type")
+                    bank = data.get("bank", {}).get("name")
+                    country = data.get("country", {}).get("name")
+                    if brand and card_type and bank and country:
+                        return f"{brand} - {card_type}", bank, country
+            except:
+                continue
+        await asyncio.sleep(0.5)
     return "Unknown", "Unknown", "Unknown"
 
 # ------------------- Check API -------------------
@@ -129,7 +132,6 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with open(file_path, 'r', encoding='utf-8') as f:
         lines = f.readlines()
 
-    # تجهيز المهام المتوازية لتسريع الفحص
     async def process_line(line):
         nonlocal approved, live, declined
         match = re.findall(r'\d{12,16}\|\d{2}\|\d{2,4}\|\d{3,4}', line)
@@ -138,6 +140,8 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         card_full = match[0]
         start_time = time.time()
         status, response = await check_card_api(card_full)
+        # تأخير عشوائي 5-10 ثواني لكل بطاقة
+        await asyncio.sleep(random.uniform(5, 10))
         taken = round(time.time() - start_time, 2)
         text = await format_response(card_full, status, response, taken)
         if status == "approved":
@@ -174,15 +178,17 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         return text
 
-    # تنفيذ كل البطاقات بالتوازي
-    tasks = [process_line(line) for line in lines]
-    results = await asyncio.gather(*tasks)
+    for line in lines:  # نفحص كل بطاقة بالتتابع مع التأخير 5-10 ثواني
+        if stop_users.get(user_id):
+            await update.message.reply_text("Stopped ⛔")
+            return
+        await process_line(line)
 
     # حفظ كل النتائج في ملف
     with open(results_file_path, 'w', encoding='utf-8') as result_file:
-        for r in results:
-            if r:
-                result_file.write(r + "\n\n")
+        for line in lines:
+            r = await format_response(line.strip(), "N/A", "N/A", 0)
+            result_file.write(r + "\n\n")
 
     await update.message.reply_text(f"Done ✅\nResults saved: {results_file_path}")
 
