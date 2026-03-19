@@ -122,42 +122,47 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     file_path = f"downloads/{file.file_id}.txt"
     await file.download_to_drive(file_path)
 
+    results_file_path = f"downloads/results_{file.file_id}.txt"
+
     approved = live = declined = 0
     panel_msg = await update.message.reply_text("Start Checking... 🔍")
 
     with open(file_path, 'r', encoding='utf-8') as f:
         lines = f.readlines()
 
-    for i, line in enumerate(lines):
-        if stop_users.get(user_id):
-            await update.message.reply_text("Stopped ⛔")
-            return
+    with open(results_file_path, 'w', encoding='utf-8') as result_file:
+        for i, line in enumerate(lines):
+            if stop_users.get(user_id):
+                await update.message.reply_text("Stopped ⛔")
+                return
 
-        match = re.findall(r'\d{12,16}\|\d{2}\|\d{2,4}\|\d{3,4}', line)
-        if not match:
-            continue
+            match = re.findall(r'\d{12,16}\|\d{2}\|\d{2,4}\|\d{3,4}', line)
+            if not match:
+                continue
 
-        card_full = match[0]
-        start_time = time.time()
-        status, response = await check_card_api(card_full)
-        taken = round(time.time() - start_time, 2)
+            card_full = match[0]
+            start_time = time.time()
+            status, response = await check_card_api(card_full)
+            taken = round(time.time() - start_time, 2)
 
-        # تحديث العدادات
-        if status == "approved":
-            approved += 1
-        elif status == "live":
-            live += 1
-        else:
-            declined += 1
+            if status == "approved":
+                approved += 1
+            elif status == "live":
+                live += 1
+            else:
+                declined += 1
 
-        # ارسال التفاصيل كاملة
-        text = await format_response(card_full, status, response, taken)
-        await update.message.reply_text(text)
+            # ارسال التفاصيل للتليجرام
+            text = await format_response(card_full, status, response, taken)
+            await update.message.reply_text(text)
 
-        # تحديث البانل كل 5 كروت
-        if i % 5 == 0:
-            last_info, last_bank, last_country = await get_bin_info(card_full.split("|")[0][:6])
-            panel = f"""📊 Status
+            # حفظ نفس التنسيق في ملف النتائج
+            result_file.write(text + "\n\n")
+
+            # تحديث البانل كل 5 كروت
+            if i % 5 == 0:
+                last_info, last_bank, last_country = await get_bin_info(card_full.split("|")[0][:6])
+                panel = f"""📊 Status
 
 ✅ Charge: {approved}
 🟢 Live: {live}
@@ -175,14 +180,14 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ⛔ Stop: {'ON' if stop_users.get(user_id) else 'OFF'}
 """
-            try:
-                await panel_msg.edit_text(panel)
-            except:
-                pass
+                try:
+                    await panel_msg.edit_text(panel)
+                except:
+                    pass
 
-        await asyncio.sleep(0.2)
+            await asyncio.sleep(0.2)
 
-    await update.message.reply_text("Done ✅")
+    await update.message.reply_text(f"Done ✅\nResults saved: {results_file_path}")
 
 # ------------------- /start -------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
