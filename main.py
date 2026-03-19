@@ -24,20 +24,44 @@ api_semaphore = asyncio.Semaphore(6)  # معدل معتدل
 async def get_bin_info(bin_number):
     urls = [
         f"https://lookup.binlist.net/{bin_number}",
-        f"https://lookup.binlist.com/{bin_number}"  # API احتياطي
+        f"https://bins.antipublic.cc/bins/{bin_number}",
+        f"https://bincheck.io/api/{bin_number}"
     ]
+
     for attempt in range(3):  # 3 محاولات لتقليل Unknown
         for url in urls:
             try:
                 async with httpx.AsyncClient(timeout=10) as client:
                     r = await client.get(url)
+                    if r.status_code != 200:
+                        continue
                     data = r.json()
-                    brand = data.get("scheme")
-                    card_type = data.get("type")
-                    bank = data.get("bank", {}).get("name")
-                    country = data.get("country", {}).get("name")
-                    if brand and card_type and bank and country:
-                        return f"{brand} - {card_type}", bank, country
+
+                    brand = data.get("scheme") or data.get("brand") or data.get("type")
+                    card_type = data.get("type") or data.get("card_type")
+                    bank = (
+                        data.get("bank", {}).get("name")
+                        if isinstance(data.get("bank"), dict)
+                        else data.get("bank")
+                    )
+                    country = (
+                        data.get("country", {}).get("name")
+                        if isinstance(data.get("country"), dict)
+                        else data.get("country")
+                    )
+
+                    if not bank:
+                        bank = data.get("issuer") or data.get("bank_name")
+                    if not country:
+                        country = data.get("country_name")
+
+                    if brand or bank or country:
+                        return (
+                            f"{brand or 'Unknown'} - {card_type or 'Unknown'}",
+                            bank or "Unknown",
+                            country or "Unknown"
+                        )
+
             except:
                 continue
         await asyncio.sleep(0.5)
@@ -140,8 +164,8 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         card_full = match[0]
         start_time = time.time()
         status, response = await check_card_api(card_full)
-        # تأخير عشوائي 5-10 ثواني لكل بطاقة
-        await asyncio.sleep(random.uniform(5, 10))
+        # تأخير عشوائي 1-5 ثواني لكل بطاقة
+        await asyncio.sleep(random.uniform(1, 5))
         taken = round(time.time() - start_time, 2)
         text = await format_response(card_full, status, response, taken)
         if status == "approved":
@@ -178,7 +202,7 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             pass
         return text
 
-    for line in lines:  # نفحص كل بطاقة بالتتابع مع التأخير 5-10 ثواني
+    for line in lines:
         if stop_users.get(user_id):
             await update.message.reply_text("Stopped ⛔")
             return
