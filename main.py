@@ -145,24 +145,25 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             status, response = await check_card_api(card_full)
             taken = round(time.time() - start_time, 2)
 
+            text = await format_response(card_full, status, response, taken)
+
+            # تحديث العدادات وإرسال الرسائل حسب الحالة
             if status == "approved":
                 approved += 1
+                await update.message.reply_text(text)
             elif status == "live":
                 live += 1
+                await update.message.reply_text(text)
             else:
                 declined += 1
+                # Declined ما تتبعتش، بس تظهر في اللوحة
 
-            # ارسال التفاصيل للتليجرام
-            text = await format_response(card_full, status, response, taken)
-            await update.message.reply_text(text)
-
-            # حفظ نفس التنسيق في ملف النتائج
+            # حفظ في ملف النتائج
             result_file.write(text + "\n\n")
 
-            # تحديث البانل كل 5 كروت
-            if i % 5 == 0:
-                last_info, last_bank, last_country = await get_bin_info(card_full.split("|")[0][:6])
-                panel = f"""📊 Status
+            # تحديث اللوحة لكل بطاقة
+            last_info, last_bank, last_country = await get_bin_info(card_full.split("|")[0][:6])
+            panel = f"""📊 Status
 
 ✅ Charge: {approved}
 🟢 Live: {live}
@@ -180,10 +181,10 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ⛔ Stop: {'ON' if stop_users.get(user_id) else 'OFF'}
 """
-                try:
-                    await panel_msg.edit_text(panel)
-                except:
-                    pass
+            try:
+                await panel_msg.edit_text(panel)
+            except:
+                pass
 
             await asyncio.sleep(0.2)
 
