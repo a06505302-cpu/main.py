@@ -11,7 +11,7 @@ TOKEN = '8610138136:AAHHtP1A21F3NdW6hcQHocpgkcd-GF2EE_U'
 
 # البوابات للتبديل التلقائي
 GATES = [
-    "https://dandelionsmontessori.org/give/15767517?giveDonationFormInIframe=1",
+    "https://raybensch.com/donations/support-ray/",
     "https://www.wfft.org/donations/general-donation/"
 ]
 gate_index = 0
