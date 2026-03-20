@@ -165,7 +165,7 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         start_time = time.time()
         status, response = await check_card_api(card_full)
         # تأخير عشوائي 1-5 ثواني لكل بطاقة
-        await asyncio.sleep(random.uniform(2, 5))
+        await asyncio.sleep(random.uniform(1, 5))
         taken = round(time.time() - start_time, 2)
         text = await format_response(card_full, status, response, taken)
         if status == "approved":
