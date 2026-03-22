@@ -10,7 +10,7 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters, ContextTypes
 )
 
-TOKEN = ''
+TOKEN = '8610138136:AAHHtP1A21F3NdW6hcQHocpgkcd-GF2EE_U'
 
 # ------------------- Users -------------------
 ADMINS = [6843321125]  # ضع هنا ID الأدمن
@@ -74,7 +74,7 @@ async def get_bin_info(bin_number):
         await asyncio.sleep(0.5)
     return "Unknown", "Unknown", "Unknown"
 
-# ------------------- Check API -------------------
+# ------------------- Check API مباشر من البوابة -------------------
 async def check_card_api(card_full):
     global gate_index
     gate = GATES[gate_index]
@@ -83,8 +83,11 @@ async def check_card_api(card_full):
     async with api_semaphore:
         try:
             async with httpx.AsyncClient(timeout=20) as client:
-                r = await client.get("http://gatescheck.duckdns.org:7000/check", params=params)
-            result_raw = r.json().get('result','')
+                # نرسل الطلب مباشرة للبوابة
+                r = await client.get(gate, params=params)
+            # البوابة نفسها ترجع JSON يحتوي على النتيجة
+            data = r.json()
+            result_raw = data.get('result','')
             result = result_raw.lower()
             if "charge" in result or "success" in result:
                 return "approved", result_raw
@@ -92,10 +95,8 @@ async def check_card_api(card_full):
                 return "live", result_raw
             else:
                 return "declined", result_raw
-        except:
-            return "declined", "Error"
-
-# ------------------- Format Response -------------------
+        except Exception as e:
+            return "declined", f"Error: {str(e)}"
 async def format_response(card_full, status, response, taken):
     bin_number = card_full.split("|")[0][:6]
     info, bank, country = await get_bin_info(bin_number)
