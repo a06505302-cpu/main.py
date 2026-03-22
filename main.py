@@ -10,7 +10,7 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters, ContextTypes
 )
 
-TOKEN = '8610138136:AAHHtP1A21F3NdW6hcQHocpgkcd-GF2EE_U'
+TOKEN = ''
 
 # ------------------- Users -------------------
 ADMINS = [6843321125]  # ضع هنا ID الأدمن
