@@ -83,40 +83,18 @@ async def check_card_api(card_full):
     async with api_semaphore:
         try:
             async with httpx.AsyncClient(timeout=20) as client:
-                # نرسل الطلب مباشرة للبوابة
                 r = await client.get(gate, params=params)
-            # البوابة نفسها ترجع JSON يحتوي على النتيجة
-            data = r.json()
-            result_raw = data.get('result','')
-            result = result_raw.lower()
-            if "charge" in result or "success" in result:
-                return "approved", result_raw
-            elif "insufficient" in result:
-                return "live", result_raw
+            
+            # بدل r.json() نفحص نص الصفحة HTML
+            text = r.text.lower()
+            if "success" in text or "charge" in text:
+                return "approved", "Card approved (from page)"
+            elif "insufficient" in text:
+                return "live", "Card live (from page)"
             else:
-                return "declined", result_raw
+                return "declined", "Card declined (from page)"
         except Exception as e:
             return "declined", f"Error: {str(e)}"
-async def format_response(card_full, status, response, taken):
-    bin_number = card_full.split("|")[0][:6]
-    info, bank, country = await get_bin_info(bin_number)
-    if status == "approved":
-        title = "#Charge ✅"
-    elif status == "live":
-        title = "#Live 🟢"
-    else:
-        title = "#Declined ❌"
-    return f"""{title}
-
-💳 Card: {card_full}
-📨 Response: {response}
-
-🏦 Info: {info}
-🏛 Bank: {bank}
-🌍 Country: {country}
-
-⏱ Time: {taken}s
-"""
 
 # ------------------- Permissions -------------------
 def can_user_check(user_id, mode="file"):
