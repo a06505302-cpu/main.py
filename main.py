@@ -121,12 +121,12 @@ async def format_response(card_full, status, response, taken):
 def can_user_check(user_id, mode="file"):
     if user_id in ADMINS:
         return True
-    elif user_id in VIP_USERS and VIP_USERS[user_id] > time.time():
-        return True
     elif BANNED_USERS.get(user_id):
         return False
+    elif user_id in VIP_USERS and VIP_USERS[user_id] > time.time():
+        return True
     else:
-        return mode=="file"  # Normal users: file only
+        return mode == "single"  # ✅ العادي: فردي بس
 
 # ------------------- /pp -------------------
 async def pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
