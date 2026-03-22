@@ -2,18 +2,17 @@ import os
 import re
 import time
 import random
-import string
 import asyncio
 import httpx
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
-from telegram.ext import Application, CommandHandler, MessageHandler, CallbackQueryHandler, filters, ContextTypes
+from telegram import Update
+from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
 TOKEN = '8610138136:AAHHtP1A21F3NdW6hcQHocpgkcd-GF2EE_U'
 
-# ------------------- Users & Permissions -------------------
+# ------------------- Users -------------------
 ADMINS = [6843321125]
-VIP_USERS = {}  # {user_id: expiration_timestamp}
-BANNED_USERS = {}  # {user_id: True}
+VIP_USERS = {}       # {user_id: expiration_timestamp}
+BANNED_USERS = {}    # {user_id: True}
 stop_users = {}
 last_check_time = {}
 ANTI_SPAM_SECONDS = 7
@@ -26,7 +25,7 @@ GATES = [
 gate_index = 0
 api_semaphore = asyncio.Semaphore(6)
 
-# ------------------- Codes Example -------------------
+# ------------------- Codes -------------------
 CODES = {
     "WAFA-9387-IS96-8272": {"duration":7, "max_users":5, "used":0, "created":time.time()}
 }
@@ -128,7 +127,7 @@ def can_user_check(user_id, mode="file"):
 async def pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id in BANNED_USERS: return await update.message.reply_text("❌ You are banned")
-    if not can_user_check(user_id, "single"): return await update.message.reply_text("❌ Not allowed")
+    if not can_user_check(user_id, "single"): return await update.message.reply_text("❌ VIP only for file check.")
     if user_id not in ADMINS:
         last = last_check_time.get(user_id, 0)
         if time.time() - last < ANTI_SPAM_SECONDS:
@@ -208,61 +207,33 @@ async def process_file(update, context):
 
     await update.message.reply_text("Done ✅ File check completed")
 
-# ------------------- Admin Panel -------------------
-async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+# ------------------- Admin Commands -------------------
+async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_id not in ADMINS: return await update.message.reply_text("❌ You are not an admin.")
-    keyboard = []
-    for uid in VIP_USERS.keys():
-        keyboard.append([
-            InlineKeyboardButton(f"{uid} - Ban", callback_data=f"ban_{uid}"),
-            InlineKeyboardButton(f"{uid} - Unban", callback_data=f"unban_{uid}")
-        ])
-    keyboard.append([InlineKeyboardButton("Generate New Code", callback_data="gen_code")])
-    keyboard.append([InlineKeyboardButton("Show Codes", callback_data="show_codes")])
-    keyboard.append([InlineKeyboardButton("Show All Users", callback_data="show_users")])
-    if not keyboard: keyboard = [[InlineKeyboardButton("No VIP users", callback_data="none")]]
-    reply_markup = InlineKeyboardMarkup(keyboard)
-    await update.message.reply_text("Admin Panel: Users & Codes", reply_markup=reply_markup)
+    if user_id not in ADMINS: return await update.message.reply_text("❌ Only admin")
+    msg = "📊 All Users:\n\n"
+    for uid in VIP_USERS: 
+        msg += f"VIP: {uid} (username: unknown) expires in {int((VIP_USERS[uid]-time.time())/3600)}h\n"
+    for uid in BANNED_USERS: 
+        msg += f"BANNED: {uid}\n"
+    await update.message.reply_text(msg if msg else "No users yet")
 
-async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    query = update.callback_query
-    await query.answer()
+async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
-    if user_id not in ADMINS: return await query.edit_message_text("❌ You are not an admin.")
-    data = query.data
-    if data.startswith("ban_"):
-        uid = int(data.split("_")[1])
-        VIP_USERS.pop(uid, None)
-        BANNED_USERS[uid] = True
-        await query.edit_message_text(f"User banned: {uid}")
-    elif data.startswith("unban_"):
-        uid = int(data.split("_")[1])
-        VIP_USERS[uid] = int(time.time()) + 7*24*3600
-        BANNED_USERS.pop(uid, None)
-        await query.edit_message_text(f"User unbanned: {uid}")
-    elif data == "gen_code":
-        code = ''.join(random.choices(string.ascii_uppercase + string.digits, k=10))
-        CODES[code] = {"duration":7, "max_users":5, "used":0, "created":time.time()}
-        await query.edit_message_text(f"New code generated: {code}\nDuration: 7 days\nMax Users: 5")
-    elif data == "show_codes":
-        if not CODES: return await query.edit_message_text("No codes available")
-        msg = "📜 Codes Overview:\n\n"
-        for code, val in CODES.items():
-            expiry = int(val["created"] + val["duration"]*24*3600 - time.time())
-            days_left = max(expiry//86400,0)
-            msg += f"Code: {code}\nUsed: {val['used']}/{val['max_users']}\nExpires in: {days_left} days\n\n"
-        await query.edit_message_text(msg)
-    elif data == "show_users":
-        if not VIP_USERS and not BANNED_USERS:
-            return await query.edit_message_text("No users yet")
-        msg = "📊 All Users:\n\n"
-        for uid in VIP_USERS:
-            remaining = max(int((VIP_USERS[uid]-time.time())/3600),0)
-            msg += f"VIP: {uid}, expires in {remaining} hours\n"
-        for uid in BANNED_USERS:
-            msg += f"BANNED: {uid}\n"
-        await query.edit_message_text(msg)
+    if user_id not in ADMINS: return await update.message.reply_text("❌ Only admin can ban users")
+    if len(context.args)==0: return await update.message.reply_text("Usage:\n/ban_user USER_ID")
+    uid=int(context.args[0])
+    BANNED_USERS[uid]=True
+    VIP_USERS.pop(uid,None)
+    await update.message.reply_text(f"User {uid} banned ✅")
+
+async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMINS: return await update.message.reply_text("❌ Only admin can unban users")
+    if len(context.args)==0: return await update.message.reply_text("Usage:\n/unban_user USER_ID")
+    uid=int(context.args[0])
+    BANNED_USERS.pop(uid,None)
+    await update.message.reply_text(f"User {uid} unbanned ✅")
 
 # ------------------- Start -------------------
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -274,9 +245,10 @@ def main():
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("pp", pp))
     app.add_handler(CommandHandler("stop", stop))
-    app.add_handler(CommandHandler("admin_panel", admin_panel))
     app.add_handler(CommandHandler("code", code_command))
-    app.add_handler(CallbackQueryHandler(admin_callback))
+    app.add_handler(CommandHandler("show_users", show_users))
+    app.add_handler(CommandHandler("ban_user", ban_user))
+    app.add_handler(CommandHandler("unban_user", unban_user))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     app.run_polling()
 
