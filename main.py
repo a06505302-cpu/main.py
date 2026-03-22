@@ -5,20 +5,15 @@ import random
 import string
 import asyncio
 import httpx
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram import Update
 from telegram.ext import (
-    Application,
-    CommandHandler,
-    MessageHandler,
-    CallbackQueryHandler,
-    filters,
-    ContextTypes
+    Application, CommandHandler, MessageHandler, filters, ContextTypes
 )
 
 TOKEN = '8610138136:AAHHtP1A21F3NdW6hcQHocpgkcd-GF2EE_U'
 
 # ------------------- Users -------------------
-ADMINS = [6843321125]
+ADMINS = [6843321125]  # ضع هنا ID الأدمن
 VIP_USERS = {}       # {user_id: expiration_timestamp}
 BANNED_USERS = {}    # {user_id: True}
 ALL_USERS = set()    # كل مستخدم دخل البوت
