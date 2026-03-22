@@ -47,6 +47,12 @@ async def code_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         f"✅ Code activated!\nYou are now VIP for {code_data['duration']} days.\nUsed {code_data['used']}/{code_data['max_users']}"
     )
 
+# ------------------- /stop -------------------
+async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    stop_users[user_id] = True
+    await update.message.reply_text("Stopped ⛔")
+
 # ------------------- BIN Lookup -------------------
 async def get_bin_info(bin_number):
     urls = [
@@ -223,7 +229,6 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMINS: return await query.edit_message_text("❌ You are not an admin.")
     data = query.data
-
     if data.startswith("ban_"):
         uid = int(data.split("_")[1])
         VIP_USERS.pop(uid, None)
