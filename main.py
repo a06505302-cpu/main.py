@@ -1,4 +1,4 @@
-انت شيل كتير من البوت حتا بص import os
+import os
 import re
 import time
 import random
