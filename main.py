@@ -7,7 +7,7 @@ import httpx
 from telegram import Update
 from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
 
-TOKEN = '8689698569:AAF6GOOcFdsTnG_UXXHLqWkis0bCsIFsQJQ'
+TOKEN = '8610138136:AAHHtP1A21F3NdW6hcQHocpgkcd-GF2EE_U'
 
 # البوابات للتبديل التلقائي
 GATES = [
@@ -76,7 +76,7 @@ async def check_card_api(card_full):
     params = {
         "url": gate,
         "card": card_full,
-        "amount": 0.50
+        "amount": 1.00
     }
 
     async with api_semaphore:
