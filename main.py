@@ -26,18 +26,18 @@ api_semaphore = asyncio.Semaphore(6)
 CODES = {}
 
 # ------------------- Load / Save -------------------
-def save_vip():
+def save_vip(): 
     with open("vip.json","w") as f: json.dump(VIP_USERS,f)
 def load_vip():
     global VIP_USERS
-    try: 
+    try:
         with open("vip.json","r") as f: VIP_USERS=json.load(f)
     except: VIP_USERS={}
 def save_codes():
     with open("codes.json","w") as f: json.dump(CODES,f)
 def load_codes():
     global CODES
-    try: 
+    try:
         with open("codes.json","r") as f: CODES=json.load(f)
     except: CODES={}
 
@@ -61,7 +61,7 @@ async def get_bin_info(bin_number):
         f"https://bins.antipublic.cc/bins/{bin_number}",
         f"https://bincheck.io/api/{bin_number}"
     ]
-    for attempt in range(3):
+    for _ in range(3):
         for url in urls:
             try:
                 async with httpx.AsyncClient(timeout=10) as client:
@@ -124,15 +124,15 @@ def can_user_check(user_id,mode="file"):
 
 # ------------------- /pp -------------------
 async def pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = update.effective_user.id
-    if user_id in BANNED_USERS: 
+    user_id=update.effective_user.id
+    if user_id in BANNED_USERS:
         await update.message.reply_text("❌ You are banned")
         return
     if not can_user_check(user_id,mode="single"):
         await update.message.reply_text("❌ Not allowed")
         return
     if user_id not in ADMINS:
-        last = last_check_time.get(user_id,0)
+        last=last_check_time.get(user_id,0)
         if time.time()-last<ANTI_SPAM_SECONDS:
             wait=round(ANTI_SPAM_SECONDS-(time.time()-last),1)
             await update.message.reply_text(f"⏳ Wait {wait}s")
@@ -167,17 +167,52 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id=update.effective_user.id
     stop_users[user_id]=False
+
+    os.makedirs("downloads",exist_ok=True)
     file=await update.message.document.get_file()
-    path=f"{file.file_id}.txt"
-    await file.download_to_drive(path)
-    with open(path) as f:
-        for line in f:
-            if stop_users.get(user_id): break
-            card=line.strip()
-            status,res=await check_card_api(card)
-            if status!="declined":
-                txt=await format_response(card,status,res,0)
-                await update.message.reply_text(txt)
+    file_path=f"downloads/{file.file_id}.txt"
+    await file.download_to_drive(file_path)
+
+    approved=live=declined=0
+    panel_msg=await update.message.reply_text("Start Checking... 🔍")
+
+    with open(file_path,'r',encoding='utf-8') as f:
+        lines=f.readlines()
+
+    async def process_line(line):
+        nonlocal approved,live,declined
+        match=re.findall(r'\d{12,16}\|\d{2}\|\d{2,4}\|\d{3,4}',line)
+        if not match: return
+        card=match[0]
+        start=time.time()
+        status,res=await check_card_api(card)
+        taken=round(time.time()-start,2)
+        txt=await format_response(card,status,res,taken)
+        if status=="approved": approved+=1; await update.message.reply_text(txt)
+        elif status=="live": live+=1; await update.message.reply_text(txt)
+        else: declined+=1
+
+        # تحديث لوحة
+        panel=f"""📊 Status
+
+✅ Charge: {approved}
+🟢 Live: {live}
+❌ Declined: {declined}
+📂 Total: {approved+live+declined}
+
+💳 Last Card: {card}
+📨 Response: {res}
+
+⛔ Stop: {'ON' if stop_users.get(user_id) else 'OFF'}
+"""
+        try: await panel_msg.edit_text(panel)
+        except: pass
+
+    for line in lines:
+        if stop_users.get(user_id): break
+        await process_line(line)
+
+    await update.message.reply_text("Done ✅ File check completed")
 
 # ------------------- Admin Panel -------------------
 async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
