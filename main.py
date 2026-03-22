@@ -13,7 +13,6 @@ Application, CommandHandler, MessageHandler, filters, ContextTypes
 TOKEN = '8689698569:AAF6GOOcFdsTnG_UXXHLqWkis0bCsIFsQJQ'
 
 ------------------- Users -------------------
-
 ADMINS = [6843321125]  # ضع هنا ID الأدمن
 VIP_USERS = {}       # {user_id: expiration_timestamp}
 BANNED_USERS = {}    # {user_id: True}
