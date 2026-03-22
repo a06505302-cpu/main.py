@@ -12,8 +12,8 @@ TOKEN = '8610138136:AAHHtP1A21F3NdW6hcQHocpgkcd-GF2EE_U'
 
 # ------------------- Users & Permissions -------------------
 ADMINS = [6843321125]
-VIP_USERS = {}
-BANNED_USERS = {}
+VIP_USERS = {}  # {user_id: expiration_timestamp}
+BANNED_USERS = {}  # {user_id: True}
 stop_users = {}
 last_check_time = {}
 ANTI_SPAM_SECONDS = 7
@@ -26,11 +26,12 @@ GATES = [
 gate_index = 0
 api_semaphore = asyncio.Semaphore(6)
 
-# ------------------- Codes Example & /code -------------------
+# ------------------- Codes Example -------------------
 CODES = {
     "WAFA-9387-IS96-8272": {"duration":7, "max_users":5, "used":0, "created":time.time()}
 }
 
+# ------------------- /code -------------------
 async def code_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if len(context.args) == 0:
@@ -219,6 +220,7 @@ async def admin_panel(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ])
     keyboard.append([InlineKeyboardButton("Generate New Code", callback_data="gen_code")])
     keyboard.append([InlineKeyboardButton("Show Codes", callback_data="show_codes")])
+    keyboard.append([InlineKeyboardButton("Show All Users", callback_data="show_users")])
     if not keyboard: keyboard = [[InlineKeyboardButton("No VIP users", callback_data="none")]]
     reply_markup = InlineKeyboardMarkup(keyboard)
     await update.message.reply_text("Admin Panel: Users & Codes", reply_markup=reply_markup)
@@ -250,6 +252,16 @@ async def admin_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             expiry = int(val["created"] + val["duration"]*24*3600 - time.time())
             days_left = max(expiry//86400,0)
             msg += f"Code: {code}\nUsed: {val['used']}/{val['max_users']}\nExpires in: {days_left} days\n\n"
+        await query.edit_message_text(msg)
+    elif data == "show_users":
+        if not VIP_USERS and not BANNED_USERS:
+            return await query.edit_message_text("No users yet")
+        msg = "📊 All Users:\n\n"
+        for uid in VIP_USERS:
+            remaining = max(int((VIP_USERS[uid]-time.time())/3600),0)
+            msg += f"VIP: {uid}, expires in {remaining} hours\n"
+        for uid in BANNED_USERS:
+            msg += f"BANNED: {uid}\n"
         await query.edit_message_text(msg)
 
 # ------------------- Start -------------------
