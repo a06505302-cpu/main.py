@@ -10,7 +10,7 @@ from telegram.ext import (
     Application, CommandHandler, MessageHandler, filters, ContextTypes
 )
 
-TOKEN = ''
+TOKEN = '8689698569:AAF6GOOcFdsTnG_UXXHLqWkis0bCsIFsQJQ'
 
 # ------------------- Users -------------------
 ADMINS = [6843321125]  # ضع هنا ID الأدمن
@@ -83,7 +83,7 @@ async def check_card_api(card_full):
     async with api_semaphore:
         try:
             async with httpx.AsyncClient(timeout=20) as client:
-                r = await client.get("http://151.247.197.54:5500/paypal", params=params)
+                r = await client.get("https://mainpy-production-3201.up.railway.app/check?data=ANYTHING", params=params)
             result_raw = r.json().get('result','')
             result = result_raw.lower()
             if "charge" in result or "success" in result:
