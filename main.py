@@ -38,79 +38,89 @@ CODES = {}  # {"WAFA-XXXX-XXXX-XXXX": {"duration":7, "max_users":5, "used":0, "c
 # ------------------- BIN Lookup -------------------
 
 async def get_bin_info(bin_number):
-    urls = [
-        f"https://lookup.binlist.net/{bin_number}",
-        f"https://bins.antipublic.cc/bins/{bin_number}",
-        f"https://bincheck.io/api/{bin_number}"
-    ]
+    if bin_number in BIN_CACHE:
+        result = BIN_CACHE[bin_number]
+    else:
+        urls = [
+            f"https://lookup.binlist.net/{bin_number}",
+            f"https://bincheck.io/api/{bin_number}",
+            f"https://bins.antipublic.cc/bins/{bin_number}"
+        ]
 
-    brand = None
-    card_type = None
-    bank = None
-    country = None
+        scheme = None
+        card_type = None
+        brand = None
+        bank = None
+        country = None
 
-    for attempt in range(3):
-        try:
-            async with httpx.AsyncClient(timeout=8) as client:
-                tasks = [client.get(url) for url in urls]
-                responses = await asyncio.gather(*tasks, return_exceptions=True)
-
-            for r in responses:
-                if not r or isinstance(r, Exception) or r.status_code != 200:
-                    continue
-
-                try:
-                    data = r.json()
-                except:
-                    continue
-
-                # دمج ذكي
-                if not brand:
-                    brand = (
-                        data.get("scheme") or
-                        data.get("brand") or
-                        data.get("card", {}).get("scheme")
+        for attempt in range(2):
+            try:
+                async with BIN_SEMAPHORE:
+                    responses = await asyncio.gather(
+                        *[HTTP_CLIENT.get(url) for url in urls],
+                        return_exceptions=True
                     )
 
-                if not card_type:
-                    card_type = (
-                        data.get("type") or
-                        data.get("card_type") or
-                        data.get("card", {}).get("type")
-                    )
+                for r in responses:
+                    if isinstance(r, Exception) or not r or r.status_code != 200:
+                        continue
 
-                if not bank:
-                    bank = (
-                        data.get("bank", {}).get("name")
-                        if isinstance(data.get("bank"), dict)
-                        else data.get("bank")
-                    ) or data.get("issuer") or data.get("bank_name")
+                    try:
+                        data = r.json()
+                    except:
+                        continue
 
-                if not country:
-                    country = (
-                        data.get("country", {}).get("name")
-                        if isinstance(data.get("country"), dict)
-                        else data.get("country")
-                    ) or data.get("country_name")
+                    if not scheme:
+                        scheme = (data.get("scheme") or data.get("brand") or "").upper()
 
-            # لو كله اتجمع نخرج بدري
-            if brand and card_type and bank and country:
-                return (
-                    f"{brand} - {card_type}",
-                    bank,
-                    country
-                )
+                    if not card_type:
+                        card_type = (data.get("type") or data.get("card_type") or "").upper()
 
-        except:
-            pass
+                    if not brand:
+                        brand = (data.get("brand") or data.get("scheme") or "").upper()
 
-        await asyncio.sleep(0.4)
+                    if not bank:
+                        bank = (
+                            (data.get("bank", {}).get("name") if isinstance(data.get("bank"), dict) else data.get("bank"))
+                            or data.get("issuer") or data.get("bank_name") or ""
+                        ).upper()
 
-    return (
-        f"{brand or 'Unknown'} - {card_type or 'Unknown'}",
-        bank or "Unknown",
-        country or "Unknown"
-                    )
+                    if not country:
+                        country = (
+                            (data.get("country", {}).get("name") if isinstance(data.get("country"), dict) else None)
+                            or data.get("country_name") or data.get("country")
+                            or data.get("location", {}).get("country") or data.get("countryCode") or ""
+                        ).upper()
+
+                if scheme and card_type and brand and bank and country:
+                    break
+
+            except:
+                pass
+
+            await asyncio.sleep(0.2)
+
+        result = (
+            f"{(scheme or 'Unknown')} - {(card_type or 'Unknown')}",
+            bank or "Unknown",
+            country or "Unknown"
+        )
+
+        BIN_CACHE[bin_number] = result
+
+    # ----------------- فلترة الدول -----------------
+    if ALLOWED_COUNTRIES and (result[2].upper() not in ALLOWED_COUNTRIES):
+        return None
+
+    # ----------------- فلترة البنوك -----------------
+    if ALLOWED_BANKS and (result[1].upper() not in ALLOWED_BANKS):
+        return None
+
+    # ----------------- فلترة نوع البطاقة -----------------
+    if ALLOWED_CARD_TYPES and all(t not in result[0].upper() for t in ALLOWED_CARD_TYPES):
+        return None
+
+    return result
 
 # ------------------- Check API -------------------
 
