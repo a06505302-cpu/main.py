@@ -35,7 +35,7 @@ api_semaphore = asyncio.Semaphore(6)
 
 CODES = {}  # {"WAFA-XXXX-XXXX-XXXX": {"duration":7, "max_users":5, "used":0, "created":timestamp}}
 
-# ------------------- BIN Lookup -------------------
+# ------------------- BIN Lookup ------------------
 
 async def get_bin_info(bin_number):
     if bin_number in BIN_CACHE:
@@ -71,26 +71,31 @@ async def get_bin_info(bin_number):
                         continue
 
                     if not scheme:
-                        scheme = (data.get("scheme") or data.get("brand") or "").upper()
+                        scheme = data.get("scheme") or data.get("brand")
 
                     if not card_type:
-                        card_type = (data.get("type") or data.get("card_type") or "").upper()
+                        card_type = data.get("type") or data.get("card_type")
 
                     if not brand:
-                        brand = (data.get("brand") or data.get("scheme") or "").upper()
+                        brand = data.get("brand") or data.get("scheme")
 
                     if not bank:
                         bank = (
-                            (data.get("bank", {}).get("name") if isinstance(data.get("bank"), dict) else data.get("bank"))
-                            or data.get("issuer") or data.get("bank_name") or ""
-                        ).upper()
+                            data.get("bank", {}).get("name")
+                            if isinstance(data.get("bank"), dict)
+                            else data.get("bank")
+                        ) or data.get("issuer") or data.get("bank_name")
 
                     if not country:
                         country = (
-                            (data.get("country", {}).get("name") if isinstance(data.get("country"), dict) else None)
-                            or data.get("country_name") or data.get("country")
-                            or data.get("location", {}).get("country") or data.get("countryCode") or ""
-                        ).upper()
+                            data.get("country", {}).get("name")
+                            if isinstance(data.get("country"), dict)
+                            else None
+                        ) or data.get("country_name") \
+                          or data.get("country") \
+                          or data.get("location", {}).get("country") \
+                          or data.get("countryCode") \
+                          or data.get("country_code")
 
                 if scheme and card_type and brand and bank and country:
                     break
@@ -108,20 +113,12 @@ async def get_bin_info(bin_number):
 
         BIN_CACHE[bin_number] = result
 
-    # ----------------- فلترة الدول -----------------
-    if ALLOWED_COUNTRIES and (result[2].upper() not in ALLOWED_COUNTRIES):
-        return None
-
-    # ----------------- فلترة البنوك -----------------
-    if ALLOWED_BANKS and (result[1].upper() not in ALLOWED_BANKS):
-        return None
-
-    # ----------------- فلترة نوع البطاقة -----------------
-    if ALLOWED_CARD_TYPES and all(t not in result[0].upper() for t in ALLOWED_CARD_TYPES):
-        return None
+    # 🌍 فلترة الدول
+    if ALLOWED_COUNTRIES:
+        if result[2].upper() not in ALLOWED_COUNTRIES:
+            return None
 
     return result
-
 # ------------------- Check API -------------------
 
 async def check_card_api(card_full):
