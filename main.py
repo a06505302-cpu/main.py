@@ -25,7 +25,7 @@ ANTI_SPAM_SECONDS = 7
 # ------------------- Gates -------------------
 
 GATES = [
-    "https://rightchange.org/?give_forms=zakat",
+    "https://raybensch.com/donations/support-ray/",
     "https://www.wfft.org/donations/general-donation/"
 ]
 gate_index = 0
@@ -35,82 +35,49 @@ api_semaphore = asyncio.Semaphore(6)
 
 CODES = {}  # {"WAFA-XXXX-XXXX-XXXX": {"duration":7, "max_users":5, "used":0, "created":timestamp}}
 
-# ------------------- BIN Lookup ------------------
-
-BIN_CACHE = {}
-BIN_SEMAPHORE = asyncio.Semaphore(20)
+# ------------------- BIN Lookup -------------------
 
 async def get_bin_info(bin_number):
-    if bin_number in BIN_CACHE:
-        return BIN_CACHE[bin_number]
-
     urls = [
         f"https://lookup.binlist.net/{bin_number}",
-        f"https://bincheck.io/api/{bin_number}",
-        f"https://bins.antipublic.cc/bins/{bin_number}"
+        f"https://bins.antipublic.cc/bins/{bin_number}",
+        f"https://bincheck.io/api/{bin_number}"
     ]
-
-    scheme = None
-    card_type = None
-    brand = None
-    bank = None
-    country = None
-
-    for attempt in range(2):
-        try:
-            async with httpx.AsyncClient(timeout=6) as client:
-                tasks = [client.get(url) for url in urls]
-                responses = await asyncio.gather(*tasks, return_exceptions=True)
-
-            for r in responses:
-                if not r or isinstance(r, Exception) or r.status_code != 200:
-                    continue
-
-                try:
+    for attempt in range(3):
+        for url in urls:
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.get(url)
+                    if r.status_code != 200:
+                        continue
                     data = r.json()
-                except:
-                    continue
-
-                if not scheme:
-                    scheme = data.get("scheme") or data.get("brand")
-
-                if not card_type:
+                    brand = data.get("scheme") or data.get("brand") or data.get("type")
                     card_type = data.get("type") or data.get("card_type")
-
-                if not brand:
-                    brand = data.get("brand") or data.get("scheme")
-
-                if not bank:
                     bank = (
                         data.get("bank", {}).get("name")
                         if isinstance(data.get("bank"), dict)
                         else data.get("bank")
-                    ) or data.get("issuer")
-
-                if not country:
+                    )
                     country = (
                         data.get("country", {}).get("name")
                         if isinstance(data.get("country"), dict)
-                        else None
-                    ) or data.get("country_name") or data.get("country")
+                        else data.get("country")
+                    )
+                    if not bank:
+                        bank = data.get("issuer") or data.get("bank_name")
+                    if not country:
+                        country = data.get("country_name")
+                    if brand or bank or country:
+                        return (
+                            f"{brand or 'Unknown'} - {card_type or 'Unknown'}",
+                            bank or "Unknown",
+                            country or "Unknown"
+                        )
+            except:
+                continue
+        await asyncio.sleep(0.5)
+    return "Unknown", "Unknown", "Unknown"
 
-            if scheme and card_type and brand and bank and country:
-                break
-
-        except:
-            pass
-
-        await asyncio.sleep(0.3)
-
-    result = (
-        f"{(scheme or 'Unknown')} - {(card_type or 'Unknown')}",
-        bank or "Unknown",
-        country or "Unknown"
-    )
-
-    BIN_CACHE[bin_number] = result
-    return result
-            
 # ------------------- Check API -------------------
 
 async def check_card_api(card_full):
