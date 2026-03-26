@@ -113,19 +113,14 @@ async def check_card_api(card_full):
 
 # ------------------- Format Response -------------------
 
-async def format_response(card_full, status, response, taken):
+async def format_response(card_full, status, response, taken, mode="single"):
     bin_number = card_full.split("|")[0][:6]
     bin_data = await get_bin_info(bin_number)
     info, bank, country = bin_data["info"], bin_data["bank"], bin_data["country"]
 
-    if status == "approved":
-        title = "#Charge ✅"
-    elif status == "live":
-        title = "#Live 🟢"
-    else:
-        title = "#Declined ❌"
+    title = "#PayPal_Charge ($1) [single] 🌟" if mode=="single" else "#PayPal_Charge ($1) [mass] 🌟"
 
-    return f"""#PayPal_Charge ($1) [single] 🌟
+    return f"""{title}
 - - - - - - - - - - - - - - - - - - - - - -
 [ϟ] 𝐂𝐚𝐫𝐝: {card_full}
 [ϟ] 𝐑𝐞𝐬𝐩𝐨𝐧𝐬𝐞: {response}
@@ -182,12 +177,8 @@ async def process_pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     start_time = time.time()
     status, response = await check_card_api(card_full)
     taken = round(time.time()-start_time,2)
-    text = await format_response(card_full, status, response, taken)
+    text = await format_response(card_full, status, response, taken, "single")
     await update.message.reply_text(text)
-
-# ------------------- باقي كود البوت القديم -------------------
-# كل الأوامر: /stop, handle_file, process_file, /try, /code, /wafa, /show_users, ban/unban, start, main
-# يتم الاحتفاظ بها كما هي بدون أي حذف أو تغيير آخر من النسخة القديمة.
 
 # ------------------- /stop -------------------
 
@@ -234,7 +225,7 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if status=="approved": approved+=1; await update.message.reply_text(text)  
         elif status=="live": live+=1; await update.message.reply_text(text)  
         else: declined+=1  
-        last_info,last_bank,last_country = get_bin_info(card_full.split("|")[0][:6]).values()  
+        last_info,last_bank,last_country = (await get_bin_info(card_full.split("|")[0][:6])).values()
         panel = f"""📊 Status
 
 ✅ Charge: {approved}
