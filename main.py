@@ -37,46 +37,78 @@ CODES = {}  # {"WAFA-XXXX-XXXX-XXXX": {"duration":7, "max_users":5, "used":0, "c
 
 # ------------------- BIN Lookup -------------------
 
+BIN_CACHE = {}
+BIN_SEMAPHORE = asyncio.Semaphore(20)  # تحكم في عدد الطلبات
+
+async def fetch_bin(session, url):
+    try:
+        async with BIN_SEMAPHORE:
+            r = await session.get(url, timeout=6)
+            if r.status_code != 200:
+                return None
+            return r.json()
+    except:
+        return None
+
 async def get_bin_info(bin_number):
+    if bin_number in BIN_CACHE:
+        return BIN_CACHE[bin_number]
+
     urls = [
         f"https://lookup.binlist.net/{bin_number}",
         f"https://bins.antipublic.cc/bins/{bin_number}",
         f"https://bincheck.io/api/{bin_number}"
     ]
-    for attempt in range(3):
-        for url in urls:
-            try:
-                async with httpx.AsyncClient(timeout=10) as client:
-                    r = await client.get(url)
-                    if r.status_code != 200:
-                        continue
-                    data = r.json()
-                    brand = data.get("scheme") or data.get("brand") or data.get("type")
-                    card_type = data.get("type") or data.get("card_type")
-                    bank = (
-                        data.get("bank", {}).get("name")
-                        if isinstance(data.get("bank"), dict)
-                        else data.get("bank")
-                    )
-                    country = (
-                        data.get("country", {}).get("name")
-                        if isinstance(data.get("country"), dict)
-                        else data.get("country")
-                    )
-                    if not bank:
-                        bank = data.get("issuer") or data.get("bank_name")
-                    if not country:
-                        country = data.get("country_name")
-                    if brand or bank or country:
-                        return (
-                            f"{brand or 'Unknown'} - {card_type or 'Unknown'}",
-                            bank or "Unknown",
-                            country or "Unknown"
-                        )
-            except:
-                continue
-        await asyncio.sleep(0.5)
-    return "Unknown", "Unknown", "Unknown"
+
+    brand = None
+    card_type = None
+    bank = None
+    country = None
+
+    async with httpx.AsyncClient() as session:
+        tasks = [fetch_bin(session, url) for url in urls]
+        results = await asyncio.gather(*tasks)
+
+    for data in results:
+        if not data:
+            continue
+
+        if not brand:
+            brand = (
+                data.get("scheme") or
+                data.get("brand") or
+                data.get("card", {}).get("scheme")
+            )
+
+        if not card_type:
+            card_type = (
+                data.get("type") or
+                data.get("card_type") or
+                data.get("card", {}).get("type")
+            )
+
+        if not bank:
+            bank = (
+                data.get("bank", {}).get("name")
+                if isinstance(data.get("bank"), dict)
+                else data.get("bank")
+            ) or data.get("issuer") or data.get("bank_name")
+
+        if not country:
+            country = (
+                data.get("country", {}).get("name")
+                if isinstance(data.get("country"), dict)
+                else data.get("country")
+            ) or data.get("country_name")
+
+    result = (
+        f"{brand or 'Unknown'} - {card_type or 'Unknown'}",
+        bank or "Unknown",
+        country or "Unknown"
+    )
+
+    BIN_CACHE[bin_number] = result
+    return result
 
 # ------------------- Check API -------------------
 
