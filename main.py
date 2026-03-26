@@ -37,23 +37,7 @@ CODES = {}  # {"WAFA-XXXX-XXXX-XXXX": {"duration":7, "max_users":5, "used":0, "c
 
 # ------------------- BIN Lookup -------------------
 
-BIN_CACHE = {}
-BIN_SEMAPHORE = asyncio.Semaphore(20)  # تحكم في عدد الطلبات
-
-async def fetch_bin(session, url):
-    try:
-        async with BIN_SEMAPHORE:
-            r = await session.get(url, timeout=6)
-            if r.status_code != 200:
-                return None
-            return r.json()
-    except:
-        return None
-
 async def get_bin_info(bin_number):
-    if bin_number in BIN_CACHE:
-        return BIN_CACHE[bin_number]
-
     urls = [
         f"https://lookup.binlist.net/{bin_number}",
         f"https://bins.antipublic.cc/bins/{bin_number}",
@@ -65,50 +49,68 @@ async def get_bin_info(bin_number):
     bank = None
     country = None
 
-    async with httpx.AsyncClient() as session:
-        tasks = [fetch_bin(session, url) for url in urls]
-        results = await asyncio.gather(*tasks)
+    for attempt in range(3):
+        try:
+            async with httpx.AsyncClient(timeout=8) as client:
+                tasks = [client.get(url) for url in urls]
+                responses = await asyncio.gather(*tasks, return_exceptions=True)
 
-    for data in results:
-        if not data:
-            continue
+            for r in responses:
+                if not r or isinstance(r, Exception) or r.status_code != 200:
+                    continue
 
-        if not brand:
-            brand = (
-                data.get("scheme") or
-                data.get("brand") or
-                data.get("card", {}).get("scheme")
-            )
+                try:
+                    data = r.json()
+                except:
+                    continue
 
-        if not card_type:
-            card_type = (
-                data.get("type") or
-                data.get("card_type") or
-                data.get("card", {}).get("type")
-            )
+                # دمج ذكي
+                if not brand:
+                    brand = (
+                        data.get("scheme") or
+                        data.get("brand") or
+                        data.get("card", {}).get("scheme")
+                    )
 
-        if not bank:
-            bank = (
-                data.get("bank", {}).get("name")
-                if isinstance(data.get("bank"), dict)
-                else data.get("bank")
-            ) or data.get("issuer") or data.get("bank_name")
+                if not card_type:
+                    card_type = (
+                        data.get("type") or
+                        data.get("card_type") or
+                        data.get("card", {}).get("type")
+                    )
 
-        if not country:
-            country = (
-                data.get("country", {}).get("name")
-                if isinstance(data.get("country"), dict)
-                else data.get("country")
-            ) or data.get("country_name")
+                if not bank:
+                    bank = (
+                        data.get("bank", {}).get("name")
+                        if isinstance(data.get("bank"), dict)
+                        else data.get("bank")
+                    ) or data.get("issuer") or data.get("bank_name")
 
-    result = (
+                if not country:
+                    country = (
+                        data.get("country", {}).get("name")
+                        if isinstance(data.get("country"), dict)
+                        else data.get("country")
+                    ) or data.get("country_name")
+
+            # لو كله اتجمع نخرج بدري
+            if brand and card_type and bank and country:
+                return (
+                    f"{brand} - {card_type}",
+                    bank,
+                    country
+                )
+
+        except:
+            pass
+
+        await asyncio.sleep(0.4)
+
+    return (
         f"{brand or 'Unknown'} - {card_type or 'Unknown'}",
         bank or "Unknown",
         country or "Unknown"
-    )
-
-    BIN_CACHE[bin_number] = result
-    return result
+                    )
 
 # ------------------- Check API -------------------
 
