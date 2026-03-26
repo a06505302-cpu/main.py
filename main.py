@@ -25,8 +25,7 @@ ANTI_SPAM_SECONDS = 7
 # ------------------- Gates -------------------
 
 GATES = [
-    "https://raybensch.com/donations/support-ray/",
-    "https://www.wfft.org/donations/general-donation/"
+    "https://www.wfft.org/donations/general-donation/",
 ]
 gate_index = 0
 api_semaphore = asyncio.Semaphore(6)
