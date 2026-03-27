@@ -228,9 +228,9 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         last_info,last_bank,last_country = (await get_bin_info(card_full.split("|")[0][:6])).values()
         panel = f"""📊 Status
 
-✅ Charge: {approved}💥
-🟢 Live: {live}💫
-❌ Declined: {declined}🕳
+✅ Charge: {approved} 💥
+🟢 Live: {live} 💫
+❌ Declined: {declined}
 📂 Total: {approved+live+declined}
 
 ━━━━━━━━━━━━━━━
