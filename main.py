@@ -219,7 +219,7 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         card_full = match[0]  
         start_time=time.time()  
         status,response = await check_card_api(card_full)  
-        await asyncio.sleep(random.uniform(1,4))  
+        await asyncio.sleep(random.uniform(1,5))  
         taken = round(time.time()-start_time,2)  
         text = await format_response(card_full,status,response,taken,"mass")  
         if status=="approved": approved+=1; await update.message.reply_text(text)  
