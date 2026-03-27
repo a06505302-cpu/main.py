@@ -32,7 +32,6 @@ GATES = [
 # قائمة APIs للفحص مع التبديل التلقائي
 GATES_CHECK_API = [
     "http://gatescheck.duckdns.org:7000/check",
-    "http://Gatecheck.duckdns.org:5000/check"
 ]
 
 gate_index = 0
