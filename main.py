@@ -219,7 +219,7 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         card_full = match[0]  
         start_time=time.time()  
         status,response = await check_card_api(card_full)  
-        await asyncio.sleep(random.uniform(1,3))  
+        await asyncio.sleep(random.uniform(1,4))  
         taken = round(time.time()-start_time,2)  
         text = await format_response(card_full,status,response,taken,"mass")  
         if status=="approved": approved+=1; await update.message.reply_text(text)  
@@ -228,9 +228,9 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         last_info,last_bank,last_country = (await get_bin_info(card_full.split("|")[0][:6])).values()
         panel = f"""📊 Status
 
-✅ Charge: {approved}
-🟢 Live: {live}
-❌ Declined: {declined}
+✅ Charge: {approved}💥
+🟢 Live: {live}💫
+❌ Declined: {declined}🕳
 📂 Total: {approved+live+declined}
 
 ━━━━━━━━━━━━━━━
