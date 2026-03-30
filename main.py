@@ -106,9 +106,9 @@ async def format_response(card_full, status, response, taken):
     bin_number = card_full.split("|")[0][:6]
     info, bank, country = await get_bin_info(bin_number)
     if status == "approved":
-        title = "#Charge ✅"
+        title = "#Charge 🔥"
     elif status == "live":
-        title = "#Live 🟢"
+        title = "#Live ✅"
     else:
         title = "#Declined ❌"
     return f"""{title}
