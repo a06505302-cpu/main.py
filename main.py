@@ -26,7 +26,7 @@ ANTI_SPAM_SECONDS = 7
 
 GATES = [
     "https://rightchange.org/?give_forms=zakat",
-    "https://www.wfft.org/donations/general-donation/"
+    "https://www.wfft.org/donations/general-donation/",
     "https://raybensch.com/donations/support-ray/"
 ]
 gate_index = 0
