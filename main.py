@@ -22,6 +22,9 @@ stop_users = {}
 last_check_time = {}
 ANTI_SPAM_SECONDS = 7
 
+# 🔥 أضف فوق خالص بعد المتغيرات
+user_tasks = {}
+
 # ------------------- Gates -------------------
 
 GATES = [
@@ -153,7 +156,11 @@ async def pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return  
         last_check_time[user_id] = now  
 
-    asyncio.create_task(process_pp(update, context))
+    # 🔥 حماية التاسك
+    try:
+        asyncio.create_task(process_pp(update, context))
+    except Exception as e:
+        await update.message.reply_text(f"Error: {e}")
 
 async def process_pp(update: Update, context: ContextTypes.DEFAULT_TYPE):
     card_full = " ".join(context.args)
@@ -183,36 +190,69 @@ async def handle_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("❌ VIP only for file check.")  
         return  
 
-    asyncio.create_task(process_file(update, context))
+    # 🔥 الأدمن يقدر يشغل كذا ملف - غيره لا
+    if user_id not in ADMINS:
+        if user_id in user_tasks and not user_tasks[user_id].done():
+            await update.message.reply_text("❌ Wait until current file finishes")
+            return  
+
+    try:
+        task = asyncio.create_task(process_file(update, context))
+        user_tasks[user_id] = task
+    except Exception as e:
+        await update.message.reply_text(f"Error: {e}")
+
+# ------------------- process_file -------------------
 
 async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     stop_users[user_id] = False
-    os.makedirs("downloads", exist_ok=True)
-    file = await update.message.document.get_file()
-    file_path = f"downloads/{file.file_id}.txt"
-    await file.download_to_drive(file_path)
-    results_file_path = f"downloads/results_{file.file_id}.txt"
-    approved=live=declined=0
-    panel_msg = await update.message.reply_text("Start Checking... 🔍")
-    with open(file_path,'r',encoding='utf-8') as f:
-        lines = f.readlines()
 
-    async def process_line(line):  
-        nonlocal approved, live, declined  
-        match = re.findall(r'\d{12,16}\|\d{2}\|\d{2,4}\|\d{3,4}',line)  
-        if not match: return None  
-        card_full = match[0]  
-        start_time=time.time()  
-        status,response = await check_card_api(card_full)  
-        await asyncio.sleep(random.uniform(0,2))  
-        taken = round(time.time()-start_time,2)  
-        text = await format_response(card_full,status,response,taken)  
-        if status=="approved": approved+=1; await update.message.reply_text(text)  
-        elif status=="live": live+=1; await update.message.reply_text(text)  
-        else: declined+=1  
-        last_info,last_bank,last_country = await get_bin_info(card_full.split("|")[0][:6])  
-        panel = f"""📊 Status
+    try:
+        os.makedirs("downloads", exist_ok=True)
+
+        file = await update.message.document.get_file()
+        file_path = f"downloads/{file.file_id}.txt"
+        await file.download_to_drive(file_path)
+
+        results_file_path = f"downloads/results_{file.file_id}.txt"
+
+        approved = live = declined = 0
+
+        panel_msg = await update.message.reply_text("Start Checking... 🔍")
+
+        with open(file_path,'r',encoding='utf-8') as f:
+            lines = f.readlines()
+
+        async def process_line(line):  
+            nonlocal approved, live, declined  
+            try:
+                match = re.findall(r'\d{12,16}\|\d{2}\|\d{2,4}\|\d{3,4}',line)  
+                if not match:
+                    return None  
+
+                card_full = match[0]  
+
+                start_time=time.time()  
+                status,response = await check_card_api(card_full)  
+
+                await asyncio.sleep(random.uniform(0,2))  
+
+                taken = round(time.time()-start_time,2)  
+                text = await format_response(card_full,status,response,taken)  
+
+                if status=="approved":
+                    approved+=1
+                    await update.message.reply_text(text)  
+                elif status=="live":
+                    live+=1
+                    await update.message.reply_text(text)  
+                else:
+                    declined+=1  
+
+                last_info,last_bank,last_country = await get_bin_info(card_full.split("|")[0][:6])  
+
+                panel = f"""📊 Status
 
 ✅ Charge: {approved} 💥
 🟢 Live: {live} 💫
@@ -230,21 +270,49 @@ async def process_file(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ⛔ Stop: {'ON' if stop_users.get(user_id) else 'OFF'}
 """
-        try: await panel_msg.edit_text(panel)
-        except: pass
-        return text
+                try:
+                    await panel_msg.edit_text(panel)
+                except:
+                    pass
 
-    for line in lines:  
-        if stop_users.get(user_id): await update.message.reply_text("Stopped ⛔"); return  
-        await process_line(line)  
+                return text
 
-    with open(results_file_path,'w',encoding='utf-8') as result_file:  
+            except Exception as e:
+                print(f"Line Error: {e}")
+                return None
+
         for line in lines:  
-            r = await format_response(line.strip(),"N/A","N/A",0)  
-            result_file.write(r+"\n\n")  
-    await update.message.reply_text(f"Done ✅\nResults saved: {results_file_path}")
+            if stop_users.get(user_id):
+                await update.message.reply_text("Stopped ⛔")
+                return  
 
-# 🔥 إضافة /try فقط
+            try:
+                await process_line(line)
+            except Exception as e:
+                print(f"Loop Error: {e}")
+                continue  
+
+        with open(results_file_path,'w',encoding='utf-8') as result_file:  
+            for line in lines:  
+                try:
+                    r = await format_response(line.strip(),"N/A","N/A",0)  
+                    result_file.write(r+"\n\n")  
+                except:
+                    continue
+
+        await update.message.reply_text(f"Done ✅\nResults saved: {results_file_path}")
+
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error: {e}")
+
+# ------------------- ERROR HANDLER -------------------
+
+async def error_handler(update, context):
+    print(f"Global Error: {context.error}")
+
+# ------------------- باقي أوامر البوت -------------------
+
+# 🔥 إضافة /try
 async def try_reply(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id not in ADMINS:
         return
@@ -337,6 +405,9 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 def main():
     app = Application.builder().token(TOKEN).build()
+
+    app.add_error_handler(error_handler)  # 🔥 مهم جدًا
+
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("pp", pp))
     app.add_handler(CommandHandler("stop", stop))
@@ -347,6 +418,7 @@ def main():
     app.add_handler(CommandHandler("unban_user", unban_user))
     app.add_handler(CommandHandler("try", try_reply))
     app.add_handler(MessageHandler(filters.Document.ALL, handle_file))
+
     app.run_polling()
 
 if __name__ == "__main__":
